@@ -10,6 +10,7 @@
 
 #![forbid(unsafe_code)]
 
+pub mod cache;
 pub mod smt;
 pub mod spec;
 pub mod vc;

@@ -61,15 +61,24 @@ fn time<F: FnOnce() -> bool>(label: &str, size: usize, run: F) {
 }
 
 fn main() {
-    // The checker recurses once per level of proof nesting, so sizes are capped below the
-    // default stack limit. See docs/benchmarks.md, "Stack depth".
-    for length in [10, 50, 100] {
+    // The checker recurses once per level of proof nesting. The work runs on a thread with
+    // a large stack, so proofs of depth 1,000 check without overflowing the default stack.
+    std::thread::Builder::new()
+        .stack_size(256 * 1024 * 1024)
+        .spawn(run)
+        .expect("spawn the benchmark thread")
+        .join()
+        .expect("the benchmark thread completed");
+}
+
+fn run() {
+    for length in [10, 100, 1000] {
         let (kernel, term, claim) = chain(length);
         time("modus ponens chain", length, || {
             kernel.check_proof(&term, &claim).is_ok()
         });
     }
-    for depth in [10, 50, 100] {
+    for depth in [10, 100, 1000] {
         let (kernel, term, claim) = nested_identity(depth);
         time("nested identity", depth, || {
             kernel.check_proof(&term, &claim).is_ok()

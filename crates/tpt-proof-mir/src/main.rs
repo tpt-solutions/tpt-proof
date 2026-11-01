@@ -20,14 +20,15 @@ use rustc_driver::{Callbacks, Compilation};
 use rustc_hir::def::DefKind;
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::TyCtxt;
+use tpt_proof_contract::cache::VcCache;
 use tpt_proof_contract::smt::counterexample_values;
-use tpt_proof_contract::{check, Outcome, SolverConfig};
+use tpt_proof_contract::{Outcome, SolverConfig};
 use tpt_proof_mir::translate::translate;
 
 /// Translates and checks every function in the file, counting what is not proved.
-#[derive(Default)]
 struct Verify {
     not_proved: usize,
+    cache: VcCache,
 }
 
 impl Callbacks for Verify {
@@ -47,7 +48,7 @@ impl Callbacks for Verify {
                 Ok(vcs) if vcs.is_empty() => println!("{name}: no assertions"),
                 Ok(vcs) => {
                     for vc in &vcs {
-                        let outcome = check(vc, &config);
+                        let outcome = self.cache.check(vc, &config);
                         if !matches!(outcome, Outcome::SolverUnsat) {
                             self.not_proved += 1;
                         }
@@ -88,7 +89,14 @@ fn main() {
         "--cfg=tpt_proof_verify".to_string(),
     ];
     compiler_args.extend(args[1..].iter().cloned());
-    let mut verify = Verify::default();
+    let cache = match std::env::var("TPT_PROOF_CACHE") {
+        Ok(directory) => VcCache::in_directory(directory).unwrap_or_else(|_| VcCache::in_memory()),
+        Err(_) => VcCache::in_memory(),
+    };
+    let mut verify = Verify {
+        not_proved: 0,
+        cache,
+    };
     rustc_driver::compiler_entrypoint(&compiler_args, &mut verify);
     if verify.not_proved > 0 {
         std::process::exit(1);
