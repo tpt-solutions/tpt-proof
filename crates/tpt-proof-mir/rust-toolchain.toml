@@ -1,0 +1,4 @@
+# Pinned nightly for rustc_private (MIR access). Bump deliberately; see TODO.md.
+[toolchain]
+channel = "nightly-2026-10-31"
+components = ["rustc-dev", "llvm-tools-preview"]

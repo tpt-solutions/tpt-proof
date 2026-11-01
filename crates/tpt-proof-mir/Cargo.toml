@@ -1,14 +1,15 @@
 [package]
 name = "tpt-proof-mir"
 description = "Rust MIR analysis for tpt-proof: translation to verification conditions."
-version.workspace = true
-edition.workspace = true
-rust-version.workspace = true
-license.workspace = true
-authors.workspace = true
-publish.workspace = true
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+publish = false
 
-# Will need rustc_private on a pinned nightly in Phase 3. Stable placeholder for now.
+# This crate uses rustc_private, which needs a nightly compiler. It is kept out of
+# the stable workspace (see the root Cargo.toml `exclude`) and pins its own toolchain.
+[workspace]
 
-[lints]
-workspace = true
+[lints.rust]
+unsafe_code = "forbid"

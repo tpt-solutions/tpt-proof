@@ -67,10 +67,6 @@ dependencies = [
 ]
 
 [[package]]
-name = "tpt-proof-mir"
-version = "0.0.1"
-
-[[package]]
 name = "tpt-proof-runtime"
 version = "0.0.1"
 

@@ -1,5 +1,5 @@
 # Build output
-/target/
+target/
 **/*.rs.bk
 
 # Lockfile is committed for the CLI and examples; revisit when libraries are published

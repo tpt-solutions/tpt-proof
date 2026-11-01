@@ -87,11 +87,11 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 - [ ] Contract macros: `#[requires]`, `#[ensures]`, `#[invariant]`, `#[assert]`, `==>` operator (requires and ensures done as debug checks; invariant, assert, and ==> pending)
 - [ ] Research spike: Z3 proof-reconstruction strategy
-- [ ] MIR extraction (`tpt-proof-mir`): desugar, monomorphize, resolve ownership
+- [ ] MIR extraction (`tpt-proof-mir`): desugar, monomorphize, resolve ownership (driver reads optimized MIR per function on a pinned nightly; translation to VCs, monomorphization, and ownership are pending)
 - [ ] Verifiable subset enforcement with clear errors for unsupported features (Phase 1 subset: safe Rust, no closures, no `dyn`, no raw pointers, no FFI)
 - [ ] Ownership/borrow model (linear resources, loans)
 - [ ] VC generation (`vc.rs`): weakest precondition, loops via invariants, overflow/bounds checks (WP, loop havoc, and range (overflow) obligations done; array bounds pending; source language is a model, not MIR)
-- [x] SMT-LIB encoding and `z3` subprocess driver (timeouts, resource limits) (not run against real z3 here: 2 ignored tests need z3 on PATH)
+- [x] SMT-LIB encoding and `z3` subprocess driver (timeouts, resource limits) (verified against z3 5.3.3: the 3 ignored solver tests pass with `cargo test -- --ignored`)
 - [ ] Proof-producing reflection: convert Z3 output to kernel proof terms; fail if not checkable
 - [ ] Counterexample extraction and reporting (raw solver model only; not parsed into values)
 - [ ] Result states: Verified / Unverified / Failed / Timeout, never silent fallback (Outcome done; Verified is unreachable until proof reflection exists)
