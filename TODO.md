@@ -56,8 +56,8 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] Formal write-up of the logic (syntax, typing rules, inference rules) before coding
 - [x] `Type`, `Proposition`, `ProofTerm` AST (`terms.rs`)
 - [x] Opaque `Theorem` type, constructible only by the kernel
-- [ ] Contexts, variable binding, capture-avoiding substitution
-- [ ] Proof checker (`checker.rs`): Var, Lam, App, Forall, Constr, Match, Axiom (partial: Var, Lam, App, Axiom, Const done; Forall, Constr, Match pending)
+- [x] Contexts, variable binding, capture-avoiding substitution
+- [ ] Proof checker (`checker.rs`): Var, Lam, App, Forall, Constr, Match, Axiom (partial: Var, Lam, App, Axiom, Const, TyLam, TyApp done; Constr, Match pending)
 - [ ] Inductive type declarations + positivity check
 - [ ] Recursive function definitions + termination checking
 - [ ] Equality: refl, symm, trans, congruence
@@ -65,7 +65,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem
 - [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (partial: declare_axiom, declare_theorem, check_proof, assume done; declare_inductive and define_function pending)
-- [ ] Unit tests, property-based tests, and negative tests (bogus proofs must be rejected) (unit and negative tests done; property-based pending)
+- [x] Unit tests, property-based tests, and negative tests (bogus proofs must be rejected)
 - [x] Enforce <5,000 LOC and zero deps in CI
 - [x] `AUDIT.md` (scope, reviewers, status)
 - [x] **Milestone: kernel checks simple proofs**
@@ -73,14 +73,14 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 2: Layer 1, type-level specs
 
-- [ ] `#[refined(...)]` macro (e.g. `value < total_blocks`)
-- [ ] Compile-time checks via const eval plus simple bound queries
-- [ ] `#[state_machine(...)]` type-state macro
-- [ ] Unit-correctness types (blocks / bytes / sectors)
-- [ ] Ghost state and phantom type helpers
-- [ ] `tpt_proof::prelude`
-- [ ] trybuild compile-fail tests, docs, examples
-- [ ] **Milestone: write and check type-level specs**
+- [ ] `#[refined(...)]` macro (e.g. `value < total_blocks`) (Index<N> done by hand; the derive needs a proc-macro crate)
+- [ ] Compile-time checks via const eval plus simple bound queries (const-checked constructor done; bound queries pending)
+- [ ] `#[state_machine(...)]` type-state macro (hand-written FileHandle done; the derive is pending)
+- [x] Unit-correctness types (blocks / bytes / sectors)
+- [x] Ghost state and phantom type helpers
+- [x] `tpt_proof::prelude`
+- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests done; trybuild and examples pending)
+- [x] **Milestone: write and check type-level specs** (hand-written; derive macros pending)
 
 ## Phase 3: Layer 2, contracts
 
@@ -90,10 +90,10 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] Verifiable subset enforcement with clear errors for unsupported features (Phase 1 subset: safe Rust, no closures, no `dyn`, no raw pointers, no FFI)
 - [ ] Ownership/borrow model (linear resources, loans)
 - [ ] VC generation (`vc.rs`): weakest precondition, loops via invariants, overflow/bounds checks
-- [ ] SMT-LIB encoding and `z3` subprocess driver (timeouts, resource limits)
+- [x] SMT-LIB encoding and `z3` subprocess driver (timeouts, resource limits) (not run against real z3 here: 2 ignored tests need z3 on PATH)
 - [ ] Proof-producing reflection: convert Z3 output to kernel proof terms; fail if not checkable
-- [ ] Counterexample extraction and reporting
-- [ ] Result states: Verified / Unverified / Failed / Timeout, never silent fallback
+- [ ] Counterexample extraction and reporting (raw solver model only; not parsed into values)
+- [ ] Result states: Verified / Unverified / Failed / Timeout, never silent fallback (Outcome done; Verified is unreachable until proof reflection exists)
 - [ ] Caching and incremental verification
 - [ ] `tpt-proof-cli` (`cargo tpt-proof verify`), diagnostics UX
 - [ ] **Milestone: verify simple function contracts**
@@ -109,7 +109,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 5: Layer 4, runtime verification
 
-- [ ] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost)
+- [ ] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost) (runtime_check! macro done; attribute form needs a proc-macro crate)
 - [ ] proptest/quickcheck integration
 - [ ] Counterexample replay for failed static proofs
 - [ ] **Milestone: debug verification failures at runtime**

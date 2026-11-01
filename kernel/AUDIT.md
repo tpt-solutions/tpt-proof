@@ -14,7 +14,8 @@ The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel)
 | Opaque `Theorem` (private fields, crate-private constructor) | Implemented |
 | Axiom declaration with justification; dependency tracking | Implemented |
 | Assumptions (`assume`) | Implemented |
-| Universal quantification (`Forall`) | Not implemented |
+| Propositional quantification (`forall p. A`; `TyLam`, `TyApp`) with the generalization side condition | Implemented |
+| Quantification over individuals | Not implemented |
 | Inductive types, `Constr`, `Match` | Not implemented |
 | `define_function` with termination checking | Not implemented |
 | Equality (refl, symm, trans, congruence) | Not implemented |
@@ -36,6 +37,7 @@ None. The kernel ships with no built-in axioms. Implication introduction and eli
 ## Change log
 
 - 2026: initial kernel with simply-typed implication logic, opaque theorems, and dependency tracking.
+- 2026: added propositional quantification with capture-avoiding substitution, alpha-equivalence, and the generalization side condition. Added property-based tests (fixed-seed generator, no dependencies).
 
 ## Rules for changes
 

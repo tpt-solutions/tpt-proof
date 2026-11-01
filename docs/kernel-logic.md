@@ -7,8 +7,9 @@ This is the formal description of the kernel's logic, written before the checker
 Propositions (types):
 
 ```
-A, B ::= p          atomic proposition (p a name)
+A, B ::= p          atomic proposition or propositional variable
        | A -> B     implication
+       | forall p. A   universal quantification over a propositional variable
 ```
 
 Proof terms:
@@ -19,6 +20,8 @@ t ::= x              variable
     | ax             axiom
     | \x:A. t        implication introduction
     | t1 t2          implication elimination
+    | /\p. t         universal introduction (Λp)
+    | t [A]          universal elimination (instantiation at A)
 ```
 
 ## Judgments
@@ -44,7 +47,19 @@ t ::= x              variable
   Γ ⊢ t1 : A -> B ; D1     Γ ⊢ t2 : A ; D2
   ------------------------------------------- IMP-ELIM
   Γ ⊢ t1 t2 : B ; D1 ∪ D2
+
+
+  Γ ⊢ t : B ; D     p ∉ FV(Γ)     ∀ax ∈ D. p ∉ FV(prop(ax))
+  ----------------------------------------------------------- ALL-INTRO
+  Γ ⊢ /\p. t : forall p. B ; D
+
+
+  Γ ⊢ t : forall p. B ; D
+  ------------------------------- ALL-ELIM
+  Γ ⊢ t [A] : B[p := A] ; D
 ```
+
+The side condition on ALL-INTRO is what keeps quantification sound. The proof may use only hypotheses and axioms that do not mention `p`, so the proof works for every choice of `p`. Without it, the axiom `A` would give `forall A. A`. The substitution `B[p := A]` renames bound variables when needed to avoid capturing free variables in `A`. Propositions are compared up to renaming of bound variables.
 
 ## Checking a claim
 
@@ -64,7 +79,7 @@ Formal proof of (2) and (3) is the Phase 8 target (`proofs/kernel_soundness`).
 
 ## Not yet in the logic
 
-- Universal quantification and its rules
+- Quantification over individuals (terms of a domain such as `usize`)
 - Inductive types, constructors, and pattern matching
 - Recursive definitions with termination checking
 - Equality and its axioms

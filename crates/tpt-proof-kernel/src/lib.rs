@@ -35,6 +35,15 @@ pub enum KernelError {
         /// The proposition the term actually proves.
         found: Prop,
     },
+    /// Type application of a term whose type is not a universal quantifier.
+    NotAForall(Prop),
+    /// Universal introduction over a variable the proof depends on.
+    InvalidGeneralization {
+        /// The variable that could not be generalized.
+        variable: String,
+        /// Why generalization is unsound here.
+        reason: String,
+    },
     /// A name is already used by an axiom or theorem.
     DuplicateName(String),
 }
@@ -48,6 +57,12 @@ impl fmt::Display for KernelError {
             KernelError::NotAFunction(prop) => write!(f, "applied a non-function of type {prop}"),
             KernelError::TypeMismatch { expected, found } => {
                 write!(f, "expected a proof of {expected}, found {found}")
+            }
+            KernelError::NotAForall(prop) => {
+                write!(f, "instantiated a non-quantified term of type {prop}")
+            }
+            KernelError::InvalidGeneralization { variable, reason } => {
+                write!(f, "cannot generalize over `{variable}`: {reason}")
             }
             KernelError::DuplicateName(name) => write!(f, "name `{name}` is already declared"),
         }
@@ -132,7 +147,7 @@ impl Kernel {
         let mut ctx = Vec::new();
         let mut deps = BTreeSet::new();
         let found = checker::infer(self, &mut ctx, term, &mut deps)?;
-        if found != *claimed {
+        if !crate::terms::alpha_eq(&found, claimed) {
             return Err(KernelError::TypeMismatch {
                 expected: claimed.clone(),
                 found,

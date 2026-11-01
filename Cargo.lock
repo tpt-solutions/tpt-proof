@@ -5,6 +5,11 @@ version = 3
 [[package]]
 name = "tpt-proof"
 version = "0.0.1"
+dependencies = [
+ "tpt-proof-core",
+ "tpt-proof-kernel",
+ "tpt-proof-runtime",
+]
 
 [[package]]
 name = "tpt-proof-cli"

@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::terms::{ProofTerm, Prop};
+use crate::terms::{alpha_eq, ProofTerm, Prop};
 use crate::{Kernel, KernelError, Result};
 
 /// Local proof variables in scope, innermost binding last.
@@ -53,7 +53,7 @@ pub(crate) fn infer(
             match function_prop {
                 Prop::Imp(domain, codomain) => {
                     let argument_prop = infer(kernel, ctx, argument, deps)?;
-                    if argument_prop != *domain {
+                    if !alpha_eq(&argument_prop, &domain) {
                         return Err(KernelError::TypeMismatch {
                             expected: *domain,
                             found: argument_prop,
@@ -64,5 +64,34 @@ pub(crate) fn infer(
                 other => Err(KernelError::NotAFunction(other)),
             }
         }
+
+        ProofTerm::TyLam(name, body) => {
+            let body_prop = infer(kernel, ctx, body, deps)?;
+            // Generalizing over `name` is only valid if nothing the body relies on
+            // mentions `name`. Otherwise the proof would be specific to one choice.
+            if ctx.iter().any(|(_, prop)| prop.has_free(name)) {
+                return Err(KernelError::InvalidGeneralization {
+                    variable: name.clone(),
+                    reason: "a local hypothesis mentions it".to_string(),
+                });
+            }
+            for dep in deps.iter() {
+                let mentions = kernel
+                    .axiom(dep)
+                    .is_some_and(|axiom| axiom.prop.has_free(name));
+                if mentions {
+                    return Err(KernelError::InvalidGeneralization {
+                        variable: name.clone(),
+                        reason: format!("it uses axiom `{dep}`, which mentions it"),
+                    });
+                }
+            }
+            Ok(Prop::forall(name, body_prop))
+        }
+
+        ProofTerm::TyApp(function, argument) => match infer(kernel, ctx, function, deps)? {
+            Prop::Forall(name, body) => Ok(body.substitute(&name, argument)),
+            other => Err(KernelError::NotAForall(other)),
+        },
     }
 }
