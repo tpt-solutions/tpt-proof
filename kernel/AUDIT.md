@@ -1,6 +1,6 @@
 # Kernel Audit
 
-Status: **not yet audited.** The kernel is in early Phase 1 (SPEC.md §12).
+Status: **not yet audited.** The kernel is in early Phase 1 (spec.txt §12).
 
 The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel). This file tracks what has been reviewed and by whom.
 

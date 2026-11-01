@@ -2,7 +2,7 @@
 //! supported subset to verification conditions, and checks them with Z3.
 //!
 //! A result of "proved" means Z3 reported `unsat` for the negated VC. It is not
-//! yet a kernel-checked proof (SPEC.md §2, Principle 5).
+//! yet a kernel-checked proof (spec.txt §2, Principle 5).
 //!
 //! The exit status is 0 only if every VC is proved and every function is in the
 //! supported subset. Anything else exits with 1, so a failed or unverified function

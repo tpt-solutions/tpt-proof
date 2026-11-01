@@ -1,11 +1,11 @@
-//! Layer 2 of tpt-proof: contract-based verification (SPEC.md §3).
+//! Layer 2 of tpt-proof: contract-based verification (spec.txt §3).
 //!
 //! The pipeline here is: a verification condition ([`vc::Vc`]) is encoded to
 //! SMT-LIB ([`smt::encode`]) and discharged by Z3 ([`smt::check`]).
 //!
-//! Not built yet: MIR-to-VC translation (SPEC.md §5), contract macros, and
+//! Not built yet: MIR-to-VC translation (spec.txt §5), contract macros, and
 //! proof-producing reflection. Until reflection exists, a solver `unsat` answer
-//! is reported as [`Outcome::SolverUnsat`], never as `Verified` (SPEC.md §2,
+//! is reported as [`Outcome::SolverUnsat`], never as `Verified` (spec.txt §2,
 //! principle 5).
 
 #![forbid(unsafe_code)]

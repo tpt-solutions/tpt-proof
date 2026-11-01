@@ -1,8 +1,8 @@
-//! Attribute macros for tpt-proof (SPEC.md §3, Layers 2 and 4).
+//! Attribute macros for tpt-proof (spec.txt §3, Layers 2 and 4).
 //!
 //! - `#[requires(cond)]` checks `cond` on entry. Repeat it for several conditions.
 //! - `#[ensures(|result| cond)]` checks `cond` on the return value.
-//! - `#[runtime_check(cond)]` is the same as `requires`. It matches the example in SPEC.md §3.
+//! - `#[runtime_check(cond)]` is the same as `requires`. It matches the example in spec.txt §3.
 //!
 //! Each contract does two things. It records itself as a doc marker, which the
 //! MIR translator reads (see `tpt-proof-mir`). It also compiles to a runtime check:
@@ -24,11 +24,12 @@
 
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
-use quote::{quote, ToTokens};
-use syn::parse::{Parse, ParseStream};
+use quote::{format_ident, quote, ToTokens};
+use syn::parse::{Parse, ParseStream, Parser};
+use syn::punctuated::Punctuated;
 use syn::{
-    parse2, parse_quote, Attribute, Block, Expr, ExprClosure, ItemFn, LitInt, Pat, ReturnType,
-    Stmt, Token, Type,
+    parse2, parse_quote, Attribute, BinOp, Block, Expr, ExprBinary, ExprClosure, ExprLit, Field,
+    Fields, Ident, ItemFn, ItemStruct, Lit, LitInt, Pat, ReturnType, Stmt, Token, Type,
 };
 
 /// Doc marker prefix for preconditions. Must match `tpt-proof-mir`.
@@ -94,7 +95,7 @@ pub fn requires(args: TokenStream, item: TokenStream) -> TokenStream {
     ))
 }
 
-/// Checks a condition on entry, as an alias of [`requires`]. SPEC.md §3 uses this name.
+/// Checks a condition on entry, as an alias of [`requires`]. spec.txt §3 uses this name.
 #[proc_macro_attribute]
 pub fn runtime_check(args: TokenStream, item: TokenStream) -> TokenStream {
     into_output(expand_entry(
@@ -114,6 +115,239 @@ pub fn runtime_check(args: TokenStream, item: TokenStream) -> TokenStream {
 #[proc_macro_attribute]
 pub fn ensures(args: TokenStream, item: TokenStream) -> TokenStream {
     into_output(expand_ensures(args.into(), item.into()))
+}
+
+/// Layer 1: a struct whose field is always below a bound.
+///
+/// The bound is another field or an integer literal. The macro adds a checked
+/// constructor, `new`, which takes every field in declaration order and returns
+/// `None` when the predicate fails, and a getter for the refined field:
+///
+/// ```text
+/// #[refined(value < total_blocks)]
+/// struct BlockIndex { value: usize, total_blocks: usize }
+///
+/// BlockIndex::new(3, 8)  // Some
+/// BlockIndex::new(8, 8)  // None
+/// ```
+///
+/// The refined field must be `Copy`, because the getter returns it by value. A
+/// struct literal in the defining module can still skip `new`, so keep the
+/// struct in its own module when the bound must hold everywhere.
+#[proc_macro_attribute]
+pub fn refined(args: TokenStream, item: TokenStream) -> TokenStream {
+    into_output(expand_refined(args.into(), item.into()))
+}
+
+/// The bound of a refined struct: the name of another field, or a literal.
+enum Bound {
+    Field(Ident),
+    Literal(LitInt),
+}
+
+fn expand_refined(args: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> {
+    let predicate: Expr = parse2(args)?;
+    let item: ItemStruct = parse2(item)?;
+    let Expr::Binary(ExprBinary {
+        left,
+        op: BinOp::Lt(_),
+        right,
+        ..
+    }) = &predicate
+    else {
+        return Err(syn::Error::new_spanned(
+            &predicate,
+            "`refined` takes a predicate of the form `field < bound`",
+        ));
+    };
+    let value = field_name(left)?;
+    let bound = match &**right {
+        Expr::Path(_) => Bound::Field(field_name(right)?),
+        Expr::Lit(ExprLit {
+            lit: Lit::Int(literal),
+            ..
+        }) => Bound::Literal(literal.clone()),
+        other => {
+            return Err(syn::Error::new_spanned(
+                other,
+                "the bound must be a field name or an integer literal",
+            ))
+        }
+    };
+
+    let fields = named_fields(&item)?;
+    let has_field = |name: &Ident| fields.iter().any(|f| f.ident.as_ref() == Some(name));
+    let value_type = match fields.iter().find(|f| f.ident.as_ref() == Some(&value)) {
+        Some(field) => &field.ty,
+        None => {
+            return Err(syn::Error::new_spanned(
+                &value,
+                "`refined` names a field that the struct does not have",
+            ))
+        }
+    };
+    let check: Expr = match &bound {
+        Bound::Field(name) => {
+            if !has_field(name) {
+                return Err(syn::Error::new_spanned(
+                    name,
+                    "`refined` names a bound field that the struct does not have",
+                ));
+            }
+            parse_quote!(#value < #name)
+        }
+        Bound::Literal(literal) => parse_quote!(#value < #literal),
+    };
+
+    let name = &item.ident;
+    let names: Vec<&Ident> = fields.iter().filter_map(|f| f.ident.as_ref()).collect();
+    let types: Vec<&Type> = fields.iter().map(|f| &f.ty).collect();
+    let doc = format!(
+        "Builds the value, or returns `None` when `{}` does not hold.",
+        predicate.to_token_stream()
+    );
+    Ok(quote! {
+        #item
+
+        impl #name {
+            #[doc = #doc]
+            pub fn new(#(#names: #types),*) -> ::core::option::Option<Self> {
+                if #check {
+                    ::core::option::Option::Some(Self { #(#names),* })
+                } else {
+                    ::core::option::Option::None
+                }
+            }
+
+            /// The refined field. It always satisfies the predicate.
+            pub fn #value(&self) -> #value_type {
+                self.#value
+            }
+        }
+    })
+}
+
+/// Layer 1: a type-state machine over a struct. spec.txt §3.
+///
+/// `#[state_machine(Idle, Busy)]` on `struct Worker { id: u32 }` declares one
+/// marker type per listed state, makes the struct generic over its state, and
+/// adds a `state: PhantomData<S>` field. The state trait is sealed, so only the
+/// listed states implement it. Transitions are written by hand in the defining
+/// module, and they move the value with `self.transition()`:
+///
+/// ```text
+/// impl Worker<Idle> {
+///     fn begin(self) -> Worker<Busy> { self.transition() }
+/// }
+/// ```
+///
+/// The struct must not already have a `state` field, and it cannot have generics.
+#[proc_macro_attribute]
+pub fn state_machine(args: TokenStream, item: TokenStream) -> TokenStream {
+    into_output(expand_state_machine(args.into(), item.into()))
+}
+
+fn expand_state_machine(args: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> {
+    let states: Vec<Ident> = Punctuated::<Ident, Token![,]>::parse_terminated
+        .parse2(args)?
+        .into_iter()
+        .collect();
+    if states.is_empty() {
+        return Err(syn::Error::new(
+            proc_macro2::Span::call_site(),
+            "`state_machine` needs at least one state name",
+        ));
+    }
+    for (index, state) in states.iter().enumerate() {
+        if states[..index].contains(state) {
+            return Err(syn::Error::new_spanned(
+                state,
+                "this state is listed more than once",
+            ));
+        }
+    }
+
+    let mut item: ItemStruct = parse2(item)?;
+    let fields = named_fields(&item)?;
+    if fields
+        .iter()
+        .any(|f| f.ident.as_ref().is_some_and(|i| i == "state"))
+    {
+        return Err(syn::Error::new_spanned(
+            &item.ident,
+            "`state_machine` adds a `state` field; remove it from the struct",
+        ));
+    }
+    let names: Vec<Ident> = fields.iter().filter_map(|f| f.ident.clone()).collect();
+
+    let name = item.ident.clone();
+    let vis = item.vis.clone();
+    let state_trait = format_ident!("{}State", name);
+    let sealed = format_ident!("__tpt_sealed_{}", name);
+
+    item.generics = parse_quote!(<S: #state_trait>);
+    if let Fields::Named(named) = &mut item.fields {
+        named.named.push(Field::parse_named.parse2(quote!(
+            state: ::core::marker::PhantomData<S>
+        ))?);
+    }
+
+    Ok(quote! {
+        #[allow(non_snake_case)]
+        mod #sealed {
+            pub trait Sealed {}
+        }
+
+        /// A state of the machine. Only the states the macro declares implement it.
+        #vis trait #state_trait: #sealed::Sealed {}
+
+        #(
+            #[doc = "A state of the machine."]
+            #[derive(Debug, Clone, Copy, PartialEq, Eq)]
+            #vis struct #states;
+            impl #sealed::Sealed for #states {}
+            impl #state_trait for #states {}
+        )*
+
+        #item
+
+        impl<S: #state_trait> #name<S> {
+            /// Moves the value to state `T`. The fields are kept, so only the type changes.
+            fn transition<T: #state_trait>(self) -> #name<T> {
+                #name {
+                    #(#names: self.#names,)*
+                    state: ::core::marker::PhantomData,
+                }
+            }
+        }
+    })
+}
+
+/// The named fields of a struct with no generics. Other shapes are rejected.
+fn named_fields(item: &ItemStruct) -> syn::Result<Vec<&Field>> {
+    if !item.generics.params.is_empty() {
+        return Err(syn::Error::new_spanned(
+            &item.generics,
+            "generic structs are not supported by this attribute yet",
+        ));
+    }
+    match &item.fields {
+        Fields::Named(named) => Ok(named.named.iter().collect()),
+        other => Err(syn::Error::new_spanned(
+            other,
+            "this attribute needs a struct with named fields",
+        )),
+    }
+}
+
+/// A single-segment path, read as a field name.
+fn field_name(expr: &Expr) -> syn::Result<Ident> {
+    match expr {
+        Expr::Path(path) if path.qself.is_none() && path.path.segments.len() == 1 => {
+            Ok(path.path.segments[0].ident.clone())
+        }
+        _ => Err(syn::Error::new_spanned(expr, "expected a field name")),
+    }
 }
 
 fn into_output(result: syn::Result<TokenStream2>) -> TokenStream {
@@ -249,6 +483,73 @@ mod tests {
         let function = function("fn sum(n: u32) -> u32 { n }");
         assert!(expand_invariant("i <= n".parse().expect("tokens"), function.clone()).is_err());
         assert!(expand_invariant("4".parse().expect("tokens"), function).is_err());
+    }
+
+    #[test]
+    fn refined_builds_a_checked_constructor_for_a_field_bound() {
+        let expanded = expand_refined(
+            "value < total".parse().expect("tokens"),
+            function("struct Block { value: usize, total: usize }"),
+        )
+        .expect("expands")
+        .to_string();
+        assert!(
+            expanded.contains("fn new (value : usize , total : usize)"),
+            "{expanded}"
+        );
+        assert!(expanded.contains("if value < total"), "{expanded}");
+        assert!(expanded.contains("fn value (& self)"), "{expanded}");
+    }
+
+    #[test]
+    fn refined_accepts_a_literal_bound() {
+        let expanded = expand_refined(
+            "value < 8".parse().expect("tokens"),
+            function("struct Slot { value: u8 }"),
+        )
+        .expect("expands")
+        .to_string();
+        assert!(expanded.contains("if value < 8"), "{expanded}");
+    }
+
+    #[test]
+    fn refined_rejects_other_predicates_and_unknown_fields() {
+        let item = || function("struct Block { value: usize, total: usize }");
+        assert!(expand_refined("value <= total".parse().expect("tokens"), item()).is_err());
+        assert!(expand_refined("missing < total".parse().expect("tokens"), item()).is_err());
+        assert!(expand_refined("value < missing".parse().expect("tokens"), item()).is_err());
+        assert!(expand_refined(
+            "value < total".parse().expect("tokens"),
+            function("enum Block { Value }")
+        )
+        .is_err());
+    }
+
+    #[test]
+    fn state_machine_declares_states_and_a_sealed_trait() {
+        let expanded = expand_state_machine(
+            "Idle, Busy".parse().expect("tokens"),
+            function("struct Worker { id: u32 }"),
+        )
+        .expect("expands")
+        .to_string();
+        assert!(expanded.contains("trait WorkerState"), "{expanded}");
+        assert!(expanded.contains("struct Idle"), "{expanded}");
+        assert!(expanded.contains("struct Busy"), "{expanded}");
+        assert!(expanded.contains("PhantomData < S >"), "{expanded}");
+        assert!(expanded.contains("fn transition"), "{expanded}");
+    }
+
+    #[test]
+    fn state_machine_rejects_bad_state_lists() {
+        let item = || function("struct Worker { id: u32 }");
+        assert!(expand_state_machine("".parse().expect("tokens"), item()).is_err());
+        assert!(expand_state_machine("Idle, Idle".parse().expect("tokens"), item()).is_err());
+        assert!(expand_state_machine(
+            "Idle".parse().expect("tokens"),
+            function("struct Worker { state: u32 }")
+        )
+        .is_err());
     }
 
     #[test]

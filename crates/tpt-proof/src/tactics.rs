@@ -1,4 +1,4 @@
-//! Layer 3: an interactive proof framework (SPEC.md §6, Principle 3).
+//! Layer 3: an interactive proof framework (spec.txt §6, Principle 3).
 //!
 //! A [`Proof`] holds a tree of goals. Each tactic closes or splits the first open
 //! goal, and records how to build the proof term for it from its subproofs. The

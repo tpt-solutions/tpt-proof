@@ -1,4 +1,4 @@
-//! Weakest-precondition verification-condition generation (SPEC.md §3, Layer 2).
+//! Weakest-precondition verification-condition generation (spec.txt §3, Layer 2).
 //!
 //! A [`Function`] is a small imperative program with `requires` and `ensures`
 //! clauses. [`generate`] turns each `ensures` clause into a [`Vc`]: the
@@ -11,7 +11,7 @@
 //! universally quantified, so this gives the right meaning without `forall`.
 //!
 //! The source language is a model of Rust, not Rust itself. Translation from
-//! MIR (SPEC.md §5) is not built yet.
+//! MIR (spec.txt §5) is not built yet.
 
 use std::collections::BTreeSet;
 

@@ -39,5 +39,5 @@ pub mod tactics;
 pub mod prelude {
     pub use tpt_proof_core::prelude::*;
     pub use tpt_proof_kernel::{Kernel, ProofTerm, Prop, Theorem};
-    pub use tpt_proof_macros::{ensures, requires, runtime_check};
+    pub use tpt_proof_macros::{ensures, refined, requires, runtime_check, state_machine};
 }

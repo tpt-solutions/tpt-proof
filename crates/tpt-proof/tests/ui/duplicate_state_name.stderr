@@ -1,0 +1,5 @@
+error: this state is listed more than once
+ --> tests/ui/duplicate_state_name.rs:3:23
+  |
+3 | #[state_machine(Idle, Idle)]
+  |                       ^^^^

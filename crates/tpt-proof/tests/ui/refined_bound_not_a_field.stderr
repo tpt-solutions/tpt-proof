@@ -1,0 +1,5 @@
+error: `refined` names a bound field that the struct does not have
+ --> tests/ui/refined_bound_not_a_field.rs:3:19
+  |
+3 | #[refined(value < total)]
+  |                   ^^^^^

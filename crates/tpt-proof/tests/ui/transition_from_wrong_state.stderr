@@ -1,0 +1,13 @@
+error[E0599]: no method named `finish` found for struct `Worker<Idle>` in the current scope
+  --> tests/ui/transition_from_wrong_state.rs:26:30
+   |
+ 5 | struct Worker {
+   | ------------- method `finish` not found for this struct
+...
+26 |     let _ = Worker::start(1).finish();
+   |                              ^^^^^^ method not found in `Worker<Idle>`
+   |
+   = note: the method was found for `Worker<Busy>`
+   = help: items from traits can only be used if the trait is implemented and in scope
+   = note: the following trait defines an item `finish`, perhaps you need to implement it:
+           candidate #1: `Hasher`

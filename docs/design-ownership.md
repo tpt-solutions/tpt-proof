@@ -1,6 +1,6 @@
 # Design: Ownership and References in the MIR Translator
 
-Status: **phase 1 implemented** (shared references to scalars, approved). Phase 2 (mutable references) is still a proposal. It follows SPEC.md §5 ("Handling Ownership and Borrowing").
+Status: **phase 1 implemented** (shared references to scalars, approved). Phase 2 (mutable references) is still a proposal. It follows spec.txt §5 ("Handling Ownership and Borrowing").
 
 ## What the translator supports now
 
@@ -15,7 +15,7 @@ Integer and bool locals and parameters, and shared references (`&T`, `&&T`) to t
 
 ## Trust decision: borrow checking stays with rustc
 
-rustc's borrow checker already rejects every program where a reference outlives its referent or where a mutable and a shared borrow overlap. The translator runs only on code that compiled. It should rely on that, not re-prove lifetimes. This keeps the translator smaller, and it means the trusted base for ownership is the Rust compiler, which SPEC.md §7 already trusts.
+rustc's borrow checker already rejects every program where a reference outlives its referent or where a mutable and a shared borrow overlap. The translator runs only on code that compiled. It should rely on that, not re-prove lifetimes. This keeps the translator smaller, and it means the trusted base for ownership is the Rust compiler, which spec.txt §7 already trusts.
 
 The translator must not rely on anything rustc does not guarantee, such as the absence of interior mutability. It rejects types with `UnsafeCell` (directly or through a field) so that the "no change while shared" argument holds.
 

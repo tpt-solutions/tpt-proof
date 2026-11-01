@@ -6,7 +6,7 @@ Status: **implemented, with one deliberate change.** Multiple sorts, inductive d
 
 - Propositions: atoms, implication, quantification over propositional variables, and equality between ground terms.
 - Terms: uninterpreted function symbols with declared arities. A constant is a symbol of arity zero.
-- Missing: any way to state facts about an *unbounded family* of values, such as all naturals, all lists, or all B-Tree nodes. Without that, the proof targets in SPEC.md §9 (B-Tree balance, CoW atomicity) cannot be stated.
+- Missing: any way to state facts about an *unbounded family* of values, such as all naturals, all lists, or all B-Tree nodes. Without that, the proof targets in spec.txt §9 (B-Tree balance, CoW atomicity) cannot be stated.
 
 ## What has to be decided
 
@@ -55,7 +55,7 @@ Implementing this design exposed a dependency the proposal did not list. Inducti
 - quantification over individuals (`forall x:Ind. ...`), and
 - predicate symbols applied to terms (`P(t)` as a proposition).
 
-Without them, the recursor can only be stated non-dependently, which defines functions but cannot prove anything about all values. The B-Tree and CoW goals in SPEC.md §9 need the dependent form.
+Without them, the recursor can only be stated non-dependently, which defines functions but cannot prove anything about all values. The B-Tree and CoW goals in spec.txt §9 need the dependent form.
 
 Adding them means three things beyond the approved design:
 

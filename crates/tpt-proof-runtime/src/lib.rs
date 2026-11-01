@@ -1,4 +1,4 @@
-//! Layer 4 of tpt-proof: runtime verification (SPEC.md §3).
+//! Layer 4 of tpt-proof: runtime verification (spec.txt §3).
 //!
 //! [`runtime_check!`] turns a specification into a debug assertion. It is
 //! active in debug builds and compiles to nothing in release builds, so it adds

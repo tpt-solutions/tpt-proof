@@ -1,4 +1,4 @@
-//! MIR access and translation for tpt-proof (SPEC.md §5).
+//! MIR access and translation for tpt-proof (spec.txt §5).
 //!
 //! [`translate::translate`] turns the optimized MIR of a function into
 //! verification conditions for the subset it supports. The `tpt-proof-mir`

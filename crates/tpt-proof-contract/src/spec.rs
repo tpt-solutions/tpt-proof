@@ -1,4 +1,4 @@
-//! A restricted expression language for contracts (SPEC.md §6).
+//! A restricted expression language for contracts (spec.txt §6).
 //!
 //! `requires` and `ensures` conditions are written as Rust-like expressions over
 //! the parameters, integer and boolean literals, comparisons, `&&`, `||`, `!`,

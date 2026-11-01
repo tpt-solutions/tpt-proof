@@ -195,6 +195,7 @@ dependencies = [
  "tpt-proof-kernel",
  "tpt-proof-macros",
  "tpt-proof-runtime",
+ "trybuild",
 ]
 
 [[package]]

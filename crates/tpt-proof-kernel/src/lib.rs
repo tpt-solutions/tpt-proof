@@ -1,6 +1,6 @@
 //! The trusted proof kernel for tpt-proof.
 //!
-//! This crate is the only trusted component of the framework (SPEC.md §4, §7).
+//! This crate is the only trusted component of the framework (spec.txt §4, §7).
 //! It has no external dependencies and forbids `unsafe` code. The only way to
 //! obtain a [`Theorem`] is through [`Kernel::check_proof`], so every theorem
 //! value has been checked by this crate.

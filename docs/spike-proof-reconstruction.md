@@ -1,6 +1,6 @@
 # Spike: Z3 Proof Reconstruction
 
-Status: **spike complete, findings recorded.** This is the research item in TODO.md ("Research spike: Z3 proof-reconstruction strategy"). It answers whether Z3's `unsat` answers can be turned into kernel-checkable proofs, which SPEC.md §3 and Principle 5 require before a result can be called `Verified`.
+Status: **spike complete, findings recorded.** This is the research item in TODO.md ("Research spike: Z3 proof-reconstruction strategy"). It answers whether Z3's `unsat` answers can be turned into kernel-checkable proofs, which spec.txt §3 and Principle 5 require before a result can be called `Verified`.
 
 ## Experiment
 
@@ -40,7 +40,7 @@ Output: `unsat`, followed by a proof of 10 lines and 336 bytes. The proof is bui
 ## Limits and open questions
 
 - Only one small VC was tested. Proofs for loop VCs, which use quantifier-free arithmetic with fresh constants, are likely larger and may use more theory steps. That needs measurement before committing to a checker design.
-- The proof format is Z3's own term language. A parser for it is needed, and it is a trusted-base question whether that parser is part of the kernel. SPEC.md says it is not: parsing is untrusted, because the kernel checks what the parser produces.
+- The proof format is Z3's own term language. A parser for it is needed, and it is a trusted-base question whether that parser is part of the kernel. spec.txt says it is not: parsing is untrusted, because the kernel checks what the parser produces.
 - Proof size and checking time are unmeasured on realistic VCs.
 
 ## Recommendation

@@ -1,4 +1,4 @@
-//! Layer 1 of tpt-proof: type-level specifications (SPEC.md §3).
+//! Layer 1 of tpt-proof: type-level specifications (spec.txt §3).
 //!
 //! Layer 1 has zero runtime cost and zero proof burden. The invariants live in
 //! the types, and the compiler enforces them.
@@ -9,8 +9,9 @@
 //! - [`state_machine`]: type-state for handles that move through states.
 //! - [`Ghost`]: a zero-cost marker for specification-only data.
 //!
-//! Not yet: the `#[refined]` and `#[state_machine]` derive macros from SPEC.md §3.
-//! Those need a proc-macro crate, which is a later step.
+//! The `#[refined]` and `#[state_machine]` attributes from spec.txt §3 live in
+//! `tpt-proof-macros`, and they expand to the same shapes as the hand-written
+//! types here.
 
 #![forbid(unsafe_code)]
 

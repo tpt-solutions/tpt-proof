@@ -30,7 +30,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `git init`, `.gitignore`, default branch
 - [x] `LICENSE-MIT`, `LICENSE-APACHE` (Apache text verified against apache.org)
 - [x] `README.md` with license and contribution blurb
-- [x] Copy/rename `spec.txt` to `SPEC.md`; update section 10 (crate names) and section 11 (licensing)
+- [x] Copy `spec.txt` to a renamed copy and back again; update section 10 (crate names) and section 11 (licensing)
 - [x] Cargo workspace root `Cargo.toml` with `license = "MIT OR Apache-2.0"`, `authors`/`repository`
 - [x] `rust-toolchain.toml` pinning nightly + components (`rustc-dev`, `llvm-tools`) (stable for now; the nightly pin lands with `tpt-proof-mir` in Phase 3)
 - [x] `rustfmt.toml`, `clippy` config, `deny.toml` (cargo-deny: licenses must be MIT/Apache-2.0 compatible)
@@ -49,7 +49,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `tpt-proof-mir` (MIR analysis, translation)
 - [x] `tpt-proof-cli`
 - [ ] `stdlib/{collections,sync,io}`, `examples/filesystem`, `proofs/kernel_soundness`
-- [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate) (tpt-proof-macros: requires, ensures, runtime_check done, with doc markers for the translator and a `tpt_proof_verify` cfg split; refined, state_machine, theorem pending)
+- [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate) (tpt-proof-macros: requires, ensures, runtime_check, refined, and state_machine done, with doc markers for the translator and a `tpt_proof_verify` cfg split; theorem pending)
 
 ## Phase 1: Kernel foundation
 
@@ -74,13 +74,13 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 2: Layer 1, type-level specs
 
-- [ ] `#[refined(...)]` macro (e.g. `value < total_blocks`) (Index<N> done by hand; the derive needs a proc-macro crate) (Index<N> done by hand; the derive needs a proc-macro crate, now available)
+- [x] `#[refined(...)]` attribute (e.g. `value < total_blocks`, or a literal bound): a checked `new` returning `Option` and a getter, in `tpt-proof-macros`
 - [ ] Compile-time checks via const eval plus simple bound queries (const-checked constructor done; bound queries pending)
-- [ ] `#[state_machine(...)]` type-state macro (hand-written FileHandle done; the derive is pending)
+- [x] `#[state_machine(...)]` attribute: declares the states, a sealed state trait, and `transition`; the hand-written FileHandle stays as the reference
 - [x] Unit-correctness types (blocks / bytes / sectors)
 - [x] Ghost state and phantom type helpers
 - [x] `tpt_proof::prelude`
-- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests and trybuild tests for tpt-proof-core done; trybuild for the contract and facade crates, and examples, pending)
+- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests and trybuild tests for tpt-proof-core done; trybuild for the facade's derive attributes done; trybuild for the contract crate and examples pending)
 - [x] **Milestone: write and check type-level specs** (hand-written; derive macros pending)
 
 ## Phase 3: Layer 2, contracts
@@ -110,7 +110,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 5: Layer 4, runtime verification
 
-- [x] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost) (runtime_check! macro done; attribute form needs a proc-macro crate) (attribute form done via tpt-proof-macros; SPEC.md example semantics)
+- [x] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost) (runtime_check! macro done; attribute form needs a proc-macro crate) (attribute form done via tpt-proof-macros; spec.txt example semantics)
 - [ ] proptest/quickcheck integration
 - [ ] Counterexample replay for failed static proofs
 - [ ] **Milestone: debug verification failures at runtime**

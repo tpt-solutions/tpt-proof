@@ -494,7 +494,7 @@ tpt-proof (improvements driven by needs)
 
 tpt-proof/
 ├── Cargo.toml                      # Workspace root
-├── SPEC.md                         # This document
+├── spec.txt                         # This document
 ├── README.md
 ├── LICENSE-MIT
 ├── LICENSE-APACHE

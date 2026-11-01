@@ -1,6 +1,6 @@
 //! Refined values: a `usize` known to be below a bound `N`.
 //!
-//! `Index<N>` mirrors `#[refined(value < N)]` from SPEC.md §3. When it is built
+//! `Index<N>` mirrors `#[refined(value < N)]` from spec.txt §3. When it is built
 //! in a const context, a failed bound is a compile error. At runtime it is a
 //! checked constructor. Either way there is no per-access cost after the
 //! value is built.

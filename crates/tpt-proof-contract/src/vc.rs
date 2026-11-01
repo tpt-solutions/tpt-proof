@@ -1,7 +1,7 @@
 //! Verification conditions: the logical formulas a function's contract reduces to.
 //!
 //! This is a small first-order language over integers and booleans. Translation
-//! from Rust MIR (SPEC.md §5) is not built yet, so VCs are constructed by hand
+//! from Rust MIR (spec.txt §5) is not built yet, so VCs are constructed by hand
 //! for now.
 
 /// The sort (type) of a variable in a verification condition.

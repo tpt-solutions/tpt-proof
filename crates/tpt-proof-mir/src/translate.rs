@@ -1,4 +1,4 @@
-//! Translation of optimized MIR into verification conditions (SPEC.md §5).
+//! Translation of optimized MIR into verification conditions (spec.txt §5).
 //!
 //! This covers a subset: functions whose parameters and locals are integers or
 //! booleans, with straight-line code, `if`, loops with invariants, and returns.

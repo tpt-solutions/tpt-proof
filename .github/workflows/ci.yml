@@ -65,6 +65,6 @@ jobs:
           lines=$(cat crates/tpt-proof-kernel/src/*.rs | wc -l)
           echo "kernel source lines: $lines"
           if [ "$lines" -ge 5000 ]; then
-            echo "kernel exceeds the 5,000-line TCB budget (SPEC.md §4)"
+            echo "kernel exceeds the 5,000-line TCB budget (spec.txt §4)"
             exit 1
           fi

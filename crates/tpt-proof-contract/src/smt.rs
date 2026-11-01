@@ -1,6 +1,6 @@
 //! SMT-LIB encoding of verification conditions and the Z3 driver.
 //!
-//! The solver is untrusted (SPEC.md §7). A solver `unsat` answer means the
+//! The solver is untrusted (spec.txt §7). A solver `unsat` answer means the
 //! negated goal is unsatisfiable, but it is not yet a checked proof. That is why
 //! [`crate::Outcome::SolverUnsat`] is not `Verified`.
 

@@ -2,7 +2,7 @@
 //! not compile.
 //!
 //! This is the hand-written form of `#[state_machine(Open, Writing, Closed)]`
-//! from SPEC.md §3. The `State` trait is sealed, so outside code cannot add
+//! from spec.txt §3. The `State` trait is sealed, so outside code cannot add
 //! states the transitions were not written for.
 //!
 //! ```

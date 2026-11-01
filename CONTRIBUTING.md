@@ -1,17 +1,17 @@
 # Contributing to tpt-proof
 
-Thanks for your interest. tpt-proof is pre-alpha and the design is in [SPEC.md](SPEC.md).
+Thanks for your interest. tpt-proof is pre-alpha and the design is in [spec.txt](spec.txt).
 
 ## Before you start
 
-- Read [SPEC.md](SPEC.md) and check [TODO.md](TODO.md) for open work.
+- Read [spec.txt](spec.txt) and check [TODO.md](TODO.md) for open work.
 - For anything large, open an issue first so the design can be agreed.
 
 ## Ground rules
 
 - **The kernel is the trusted base.** Changes to `crates/tpt-proof-kernel` need a second reviewer and an update to [kernel/AUDIT.md](kernel/AUDIT.md). The kernel must keep zero dependencies and stay under 5,000 lines. CI enforces both.
 - **Axioms expand the TCB.** Adding an axiom requires a justification in its doc comment and a dedicated PR.
-- **Fail loudly.** A verifier must never report "probably correct". Use the explicit result states from SPEC.md §2.
+- **Fail loudly.** A verifier must never report "probably correct". Use the explicit result states from spec.txt §2.
 - Code and comments follow the surrounding style. Keep comments short and about why, not what.
 
 ## Checks
