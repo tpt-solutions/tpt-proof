@@ -1,7 +1,7 @@
 //! Quantification over individuals, predicate symbols, and the scope checks
 //! that keep individual variables bound.
 
-use tpt_proof_kernel::{Kernel, KernelError, ProofTerm, Prop, Term};
+use tpt_proof_kernel::{Kernel, KernelError, ProofTerm, Prop, Sort, Term};
 
 fn var(name: &str) -> Term {
     Term::var(name)
@@ -33,7 +33,11 @@ fn signature() -> Kernel {
 fn individual_introduction_proves_a_universal() {
     let kernel = signature();
     // all x. x = x
-    let term = ProofTerm::IndLam("x".to_string(), Box::new(ProofTerm::Refl(var("x"))));
+    let term = ProofTerm::IndLam(
+        "x".to_string(),
+        Sort::ind(),
+        Box::new(ProofTerm::Refl(var("x"))),
+    );
     let claimed = Prop::forall_ind("x", Prop::Eq(var("x"), var("x")));
     let thm = kernel.check_proof(&term, &claimed).expect("checks");
     assert!(thm.axioms().is_empty());
@@ -73,6 +77,7 @@ fn instantiation_avoids_capturing_the_bound_variable() {
     // all y. ax[x := y]  must be  all y. all y'. R(y, y'), not all y. R(y, y).
     let term = ProofTerm::IndLam(
         "y".to_string(),
+        Sort::ind(),
         Box::new(ProofTerm::IndApp(Box::new(axiom("ax")), var("y"))),
     );
     let correct = Prop::forall_ind(
@@ -93,9 +98,14 @@ fn generalizing_over_a_hypothesis_that_mentions_the_variable_is_rejected() {
     let kernel = signature();
     // all u. (P(u) -> all u. P(u))  is unsound: the hypothesis P(u) mentions the
     // outer u, so the inner generalization over u depends on it.
-    let inner = ProofTerm::IndLam("u".to_string(), Box::new(ProofTerm::Var("h".to_string())));
+    let inner = ProofTerm::IndLam(
+        "u".to_string(),
+        Sort::ind(),
+        Box::new(ProofTerm::Var("h".to_string())),
+    );
     let term = ProofTerm::IndLam(
         "u".to_string(),
+        Sort::ind(),
         Box::new(ProofTerm::Lam(
             "h".to_string(),
             pred("P", vec![var("u")]),
@@ -124,7 +134,7 @@ fn a_closed_axiom_can_be_generalized_over_any_variable() {
         .declare_axiom("pa", pred("P", vec![constant("a")]), "test axiom")
         .expect("declare");
     // The axiom mentions no individual variable, so generalizing is fine.
-    let term = ProofTerm::IndLam("x".to_string(), Box::new(axiom("pa")));
+    let term = ProofTerm::IndLam("x".to_string(), Sort::ind(), Box::new(axiom("pa")));
     assert!(kernel
         .check_proof(
             &term,

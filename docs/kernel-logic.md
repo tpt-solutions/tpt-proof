@@ -97,7 +97,7 @@ Equality over the uninterpreted symbols is sound: every rule holds in any model 
 
 ## Individuals and predicates
 
-Individuals form one universe. Terms may contain individual variables `x`. Predicate symbols `P` of arity `n` make propositions `P(t1, ..., tn)`. Universal quantification over individuals is `forall x. A`.
+Individuals are sorted. Every term has a sort, and the default sort is `Ind`. Terms may contain individual variables `x:S`. Predicate symbols `P` with argument sorts `S1..Sn` make propositions `P(t1, ..., tn)`. Universal quantification over individuals of sort `S` is `forall x:S. A`. Equality is only between terms of one sort.
 
 ```
 t ::= x | f(t1, ..., tn)
@@ -117,11 +117,28 @@ IND-INTRO has the same side condition as ALL-INTRO: a hypothesis in `Γ` or an a
 
 Every individual variable must be bound by an enclosing `forall`. Axioms, theorems, and assumptions must be closed: a claim that mentions an unbound individual, or an undeclared predicate or function, is rejected.
 
-Soundness is the standard first-order argument for a non-empty universe. The kernel has no `exists` and no sort system, so the universe is one set.
+Soundness is the standard many-sorted first-order argument for non-empty sorts. The kernel has no `exists`.
+
+## Inductive types and induction
+
+`declare_inductive(T, constructors)` declares a sort `T`. Each constructor `C(a1..an)` is a function symbol from its argument sorts to `T`. An argument of sort `T` is recursive.
+
+Positivity holds automatically: constructor arguments are first-order values of declared sorts, so there are no function-typed arguments that could be non-positive.
+
+Induction is an axiom the kernel generates for a declared predicate `P : T -> Prop`:
+
+```
+for each constructor C(a1..an):   forall a1..an. (P(ai) for each recursive ai) -> P(C(a1..an))
+implies                           forall x:T. P(x)
+```
+
+**Trust assumption.** This axiom is sound only if `T` is generated freely by its constructors: every value of sort `T` is built from them. The kernel cannot prove that for an uninterpreted sort, so it is part of the trusted base. Every theorem that uses an induction axiom lists it in its dependencies, so the assumption is visible in each proof.
+
+Not yet built: recursors and definitional equations on constructors, so functions over `T` cannot be defined in the kernel.
 
 ## Not yet in the logic
 
-- Inductive types, constructors, and induction. With a single sort, "every individual is built from the constructors" is false when uninterpreted constants exist, so the induction principle cannot be stated over all individuals as-is. See `docs/design-inductive-types.md`.
+- Recursors and definitional equations for inductive types
 - Leibniz substitution (`P(t)` and `t = s` give `P(s)`), which needs predicate variables
 - Recursive definitions with termination checking
 

@@ -19,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use axioms::Axiom;
-pub use terms::{ProofTerm, Prop, Term};
+pub use terms::{ProofTerm, Prop, Sort, Term};
 
 /// Errors the kernel reports. A rejected proof is never accepted in part.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -52,8 +52,17 @@ pub enum KernelError {
         /// Why generalization is unsound here.
         reason: String,
     },
-    /// A name is already used by an axiom or theorem.
+    /// A name is already used by an axiom, theorem, sort, or symbol.
     DuplicateName(String),
+    /// A sort is used but was never declared.
+    UnknownSort(String),
+    /// A term or proposition uses a value of one sort where another is required.
+    SortMismatch {
+        /// The sort the position requires.
+        expected: Sort,
+        /// The sort of the value found there.
+        found: Sort,
+    },
     /// A function symbol in a term or proof is not declared.
     UnknownFunction(String),
     /// A predicate symbol in a proposition is not declared.
@@ -76,6 +85,10 @@ pub enum KernelError {
         /// The left-hand side of the second equality.
         found: Term,
     },
+    /// An induction axiom was requested for a sort that was not declared inductively.
+    NotInductive(String),
+    /// An inductive type must have at least one constructor.
+    NoConstructors(String),
 }
 
 impl fmt::Display for KernelError {
@@ -101,6 +114,10 @@ impl fmt::Display for KernelError {
                 write!(f, "cannot generalize over `{variable}`: {reason}")
             }
             KernelError::DuplicateName(name) => write!(f, "name `{name}` is already declared"),
+            KernelError::UnknownSort(name) => write!(f, "unknown sort `{name}`"),
+            KernelError::SortMismatch { expected, found } => {
+                write!(f, "expected a value of sort {expected}, found {found}")
+            }
             KernelError::UnknownFunction(name) => write!(f, "unknown function symbol `{name}`"),
             KernelError::UnknownPredicate(name) => write!(f, "unknown predicate symbol `{name}`"),
             KernelError::ArityMismatch {
@@ -114,6 +131,10 @@ impl fmt::Display for KernelError {
                     f,
                     "transitivity needs {middle} on both sides, found {found}"
                 )
+            }
+            KernelError::NotInductive(name) => write!(f, "sort `{name}` is not an inductive type"),
+            KernelError::NoConstructors(name) => {
+                write!(f, "inductive type `{name}` needs at least one constructor")
             }
         }
     }
@@ -150,20 +171,40 @@ impl Theorem {
     }
 }
 
-/// The kernel environment: declared symbols, axioms, and checked theorems.
+/// The argument and result sorts of a function symbol.
+#[derive(Debug, Clone, PartialEq, Eq)]
+struct Signature {
+    args: Vec<Sort>,
+    result: Sort,
+}
+
+/// The kernel environment: declared sorts, symbols, axioms, and theorems.
 #[derive(Debug, Default)]
 pub struct Kernel {
+    sorts: BTreeSet<String>,
+    functions: BTreeMap<String, Signature>,
+    predicates: BTreeMap<String, Vec<Sort>>,
+    inductives: BTreeMap<String, Vec<(String, Vec<Sort>)>>,
     axioms: BTreeMap<String, Axiom>,
     theorems: BTreeMap<String, Theorem>,
-    functions: BTreeMap<String, usize>,
-    predicates: BTreeMap<String, usize>,
     assumptions: usize,
 }
 
 impl Kernel {
-    /// Creates an empty kernel with no symbols, axioms, or theorems.
+    /// Creates a kernel with the default sort `Ind` and no axioms or theorems.
     pub fn new() -> Self {
-        Self::default()
+        let mut kernel = Kernel::default();
+        kernel.sorts.insert(Sort::ind().0);
+        kernel
+    }
+
+    /// Declares a sort. Individuals of a sort are the values of that type.
+    pub fn declare_sort(&mut self, name: &str) -> Result<Sort> {
+        if self.sorts.contains(name) {
+            return Err(KernelError::DuplicateName(name.to_string()));
+        }
+        self.sorts.insert(name.to_string());
+        Ok(Sort::named(name))
     }
 
     /// Declares a trusted axiom. This expands the TCB, so every axiom must
@@ -221,66 +262,231 @@ impl Kernel {
         Ok(())
     }
 
-    /// Declares an uninterpreted function symbol with the given arity. A
-    /// symbol with arity zero is a constant. Symbols are a separate namespace
-    /// from axioms and theorems.
+    /// Declares an uninterpreted function symbol over the default sort, with the
+    /// given arity. A symbol with arity zero is a constant.
     pub fn declare_function(&mut self, symbol: &str, arity: usize) -> Result<()> {
+        self.declare_function_sorted(symbol, vec![Sort::ind(); arity], Sort::ind())
+    }
+
+    /// Declares an uninterpreted function symbol with explicit argument and
+    /// result sorts.
+    pub fn declare_function_sorted(
+        &mut self,
+        symbol: &str,
+        args: Vec<Sort>,
+        result: Sort,
+    ) -> Result<()> {
+        self.check_sorts(args.iter().chain(std::iter::once(&result)))?;
         if self.functions.contains_key(symbol) {
             return Err(KernelError::DuplicateName(symbol.to_string()));
         }
-        self.functions.insert(symbol.to_string(), arity);
+        self.functions
+            .insert(symbol.to_string(), Signature { args, result });
         Ok(())
     }
 
-    /// Declares an uninterpreted predicate symbol with the given arity.
+    /// Declares an uninterpreted predicate symbol over the default sort.
     pub fn declare_predicate(&mut self, symbol: &str, arity: usize) -> Result<()> {
+        self.declare_predicate_sorted(symbol, vec![Sort::ind(); arity])
+    }
+
+    /// Declares an uninterpreted predicate symbol with explicit argument sorts.
+    pub fn declare_predicate_sorted(&mut self, symbol: &str, args: Vec<Sort>) -> Result<()> {
+        self.check_sorts(args.iter())?;
         if self.predicates.contains_key(symbol) {
             return Err(KernelError::DuplicateName(symbol.to_string()));
         }
-        self.predicates.insert(symbol.to_string(), arity);
+        self.predicates.insert(symbol.to_string(), args);
         Ok(())
+    }
+
+    /// Declares an inductive type. It becomes a new sort, and each constructor
+    /// is a function from its argument sorts to the new sort. An argument of the
+    /// type being declared is a recursive argument.
+    ///
+    /// Positivity is automatic: constructor arguments are first-order values of
+    /// declared sorts, so there are no function-typed arguments that could be
+    /// non-positive.
+    ///
+    /// The constructors are trusted to generate the sort freely. That is the
+    /// assumption behind [`Kernel::declare_induction`].
+    pub fn declare_inductive(
+        &mut self,
+        name: &str,
+        constructors: &[(&str, Vec<Sort>)],
+    ) -> Result<Sort> {
+        if self.sorts.contains(name) {
+            return Err(KernelError::DuplicateName(name.to_string()));
+        }
+        if constructors.is_empty() {
+            return Err(KernelError::NoConstructors(name.to_string()));
+        }
+        let sort = Sort::named(name);
+        let mut seen = BTreeSet::new();
+        for (constructor, args) in constructors {
+            if !seen.insert(*constructor) || self.functions.contains_key(*constructor) {
+                return Err(KernelError::DuplicateName(constructor.to_string()));
+            }
+            for arg in args {
+                if arg != &sort && !self.sorts.contains(&arg.0) {
+                    return Err(KernelError::UnknownSort(arg.0.clone()));
+                }
+            }
+        }
+        self.sorts.insert(name.to_string());
+        let mut recorded = Vec::new();
+        for (constructor, args) in constructors {
+            self.functions.insert(
+                constructor.to_string(),
+                Signature {
+                    args: args.clone(),
+                    result: sort.clone(),
+                },
+            );
+            recorded.push((constructor.to_string(), args.clone()));
+        }
+        self.inductives.insert(name.to_string(), recorded);
+        Ok(sort)
+    }
+
+    /// Adds the induction axiom for an inductive sort and a predicate over it:
+    ///
+    /// ```text
+    /// for each constructor C(a1..an):
+    ///     forall a1..an. (P(ai) for each recursive ai) -> P(C(a1..an))
+    ///   implies  forall x:T. P(x)
+    /// ```
+    ///
+    /// The axiom is generated by the kernel from the declared constructors, so it
+    /// is trusted exactly to the extent that the sort is generated freely by them.
+    /// It is recorded as an axiom, so every theorem that uses it lists it.
+    pub fn declare_induction(&mut self, axiom: &str, sort: &Sort, predicate: &str) -> Result<()> {
+        let constructors = self
+            .inductives
+            .get(&sort.0)
+            .cloned()
+            .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
+        let predicate_sorts = self
+            .predicates
+            .get(predicate)
+            .cloned()
+            .ok_or_else(|| KernelError::UnknownPredicate(predicate.to_string()))?;
+        if predicate_sorts.len() != 1 {
+            return Err(KernelError::ArityMismatch {
+                symbol: predicate.to_string(),
+                expected: 1,
+                found: predicate_sorts.len(),
+            });
+        }
+        if &predicate_sorts[0] != sort {
+            return Err(KernelError::SortMismatch {
+                expected: sort.clone(),
+                found: predicate_sorts[0].clone(),
+            });
+        }
+
+        let mut cases = Vec::new();
+        for (constructor, args) in &constructors {
+            let binders: Vec<String> = (0..args.len()).map(|j| format!("a{j}")).collect();
+            let term = Term::app(constructor, binders.iter().map(|b| Term::var(b)).collect());
+            let mut body = Prop::Pred(predicate.to_string(), vec![term]);
+            for (binder, arg) in binders.iter().zip(args).rev() {
+                if arg == sort {
+                    let hypothesis = Prop::Pred(predicate.to_string(), vec![Term::var(binder)]);
+                    body = Prop::imp(hypothesis, body);
+                }
+            }
+            for (binder, arg) in binders.iter().zip(args).rev() {
+                body = Prop::forall_sorted(binder, arg.clone(), body);
+            }
+            cases.push(body);
+        }
+
+        let mut prop = Prop::forall_sorted(
+            "x",
+            sort.clone(),
+            Prop::Pred(predicate.to_string(), vec![Term::var("x")]),
+        );
+        for case in cases.into_iter().rev() {
+            prop = Prop::imp(case, prop);
+        }
+        self.declare_axiom(
+            axiom,
+            prop,
+            "induction principle: the sort is generated freely by its constructors",
+        )
+    }
+
+    /// The argument and result sorts of a function symbol.
+    pub(crate) fn signature(&self, symbol: &str) -> Option<(Vec<Sort>, Sort)> {
+        self.functions
+            .get(symbol)
+            .map(|sig| (sig.args.clone(), sig.result.clone()))
     }
 
     /// The declared arity of a function symbol.
     pub fn arity(&self, symbol: &str) -> Option<usize> {
-        self.functions.get(symbol).copied()
+        self.functions.get(symbol).map(|sig| sig.args.len())
     }
 
-    /// Checks that a closed term uses only declared symbols, with the right arity.
-    pub fn check_term(&self, term: &Term) -> Result<()> {
+    /// Checks that a closed term is well-formed and returns its sort.
+    pub fn check_term(&self, term: &Term) -> Result<Sort> {
         self.check_term_in(term, &[])
     }
 
-    /// Checks a term whose individual variables must be among `scope`.
-    pub(crate) fn check_term_in(&self, term: &Term, scope: &[String]) -> Result<()> {
-        match term {
-            Term::Var(name) => {
-                if scope.contains(name) {
-                    Ok(())
-                } else {
-                    Err(KernelError::UnboundIndividual(name.clone()))
-                }
+    /// Checks that a sort has been declared.
+    pub(crate) fn check_sort(&self, sort: &Sort) -> Result<()> {
+        self.check_sorts(std::iter::once(sort))
+    }
+
+    fn check_sorts<'a>(&self, sorts: impl Iterator<Item = &'a Sort>) -> Result<()> {
+        for sort in sorts {
+            if !self.sorts.contains(&sort.0) {
+                return Err(KernelError::UnknownSort(sort.0.clone()));
             }
+        }
+        Ok(())
+    }
+
+    /// Checks a term whose individual variables are in `scope`, and returns its
+    /// sort.
+    pub(crate) fn check_term_in(&self, term: &Term, scope: &[(String, Sort)]) -> Result<Sort> {
+        match term {
+            Term::Var(name) => scope
+                .iter()
+                .rev()
+                .find(|(bound, _)| bound == name)
+                .map(|(_, sort)| sort.clone())
+                .ok_or_else(|| KernelError::UnboundIndividual(name.clone())),
             Term::Fun(symbol, args) => {
-                let expected = self
-                    .arity(symbol)
+                let signature = self
+                    .functions
+                    .get(symbol)
                     .ok_or_else(|| KernelError::UnknownFunction(symbol.clone()))?;
-                if expected != args.len() {
+                if signature.args.len() != args.len() {
                     return Err(KernelError::ArityMismatch {
                         symbol: symbol.clone(),
-                        expected,
+                        expected: signature.args.len(),
                         found: args.len(),
                     });
                 }
-                args.iter()
-                    .try_for_each(|arg| self.check_term_in(arg, scope))
+                for (arg, expected) in args.iter().zip(&signature.args) {
+                    let found = self.check_term_in(arg, scope)?;
+                    if &found != expected {
+                        return Err(KernelError::SortMismatch {
+                            expected: expected.clone(),
+                            found,
+                        });
+                    }
+                }
+                Ok(signature.result.clone())
             }
         }
     }
 
-    /// Checks that a proposition uses only declared symbols and that its
-    /// individual variables are among `scope`.
-    pub(crate) fn check_prop(&self, prop: &Prop, scope: &[String]) -> Result<()> {
+    /// Checks that a proposition is well-formed: symbols are declared with the
+    /// right sorts and arities, and individual variables are in `scope`.
+    pub(crate) fn check_prop(&self, prop: &Prop, scope: &[(String, Sort)]) -> Result<()> {
         match prop {
             Prop::Atom(_) => Ok(()),
             Prop::Imp(a, b) => {
@@ -288,30 +494,45 @@ impl Kernel {
                 self.check_prop(b, scope)
             }
             Prop::Forall(_, body) => self.check_prop(body, scope),
-            Prop::ForallInd(name, body) => {
+            Prop::ForallInd(name, sort, body) => {
+                self.check_sort(sort)?;
                 let mut inner = scope.to_vec();
-                inner.push(name.clone());
+                inner.push((name.clone(), sort.clone()));
                 self.check_prop(body, &inner)
             }
             Prop::Eq(left, right) => {
-                self.check_term_in(left, scope)?;
-                self.check_term_in(right, scope)
+                let left_sort = self.check_term_in(left, scope)?;
+                let right_sort = self.check_term_in(right, scope)?;
+                if left_sort != right_sort {
+                    return Err(KernelError::SortMismatch {
+                        expected: left_sort,
+                        found: right_sort,
+                    });
+                }
+                Ok(())
             }
             Prop::Pred(symbol, args) => {
                 let expected = self
                     .predicates
                     .get(symbol)
-                    .copied()
                     .ok_or_else(|| KernelError::UnknownPredicate(symbol.clone()))?;
-                if expected != args.len() {
+                if expected.len() != args.len() {
                     return Err(KernelError::ArityMismatch {
                         symbol: symbol.clone(),
-                        expected,
+                        expected: expected.len(),
                         found: args.len(),
                     });
                 }
-                args.iter()
-                    .try_for_each(|arg| self.check_term_in(arg, scope))
+                for (arg, sort) in args.iter().zip(expected) {
+                    let found = self.check_term_in(arg, scope)?;
+                    if &found != sort {
+                        return Err(KernelError::SortMismatch {
+                            expected: sort.clone(),
+                            found,
+                        });
+                    }
+                }
+                Ok(())
             }
         }
     }

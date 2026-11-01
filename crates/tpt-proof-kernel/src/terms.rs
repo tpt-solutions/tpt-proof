@@ -1,17 +1,39 @@
 //! Propositions, terms, and the proof term language.
 //!
-//! The logic is first-order over a single universe of individuals, extended
-//! with second-order quantification over propositional variables. Propositions
-//! are atoms, implication, equality between terms, predicate symbols applied to
-//! terms, and two kinds of universal quantifier: over propositional variables
-//! and over individuals. A proof of `p` is a term of type `p` (Curry-Howard).
+//! The logic is first-order over sorted individuals, extended with
+//! second-order quantification over propositional variables. Propositions are
+//! atoms, implication, equality between terms of one sort, predicate symbols
+//! applied to terms, and two kinds of universal quantifier: over propositional
+//! variables and over individuals of a sort. A proof of `p` is a term of type
+//! `p` (Curry-Howard).
 //!
 //! Terms are individual variables or applications of uninterpreted function
-//! symbols. A constant is a symbol of arity zero. There is one sort, so every
-//! individual is of the same type. Inductive types and induction are not
-//! implemented yet; see `docs/design-inductive-types.md`.
+//! symbols. Every individual has a sort. `Sort::ind()` is the default sort used
+//! when none is given. Inductive types are declared as sorts; see `lib.rs`.
 
 use std::fmt;
+
+/// The sort of an individual. `Sort::ind()` is the default sort.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Sort(pub String);
+
+impl Sort {
+    /// A sort with the given name.
+    pub fn named(name: &str) -> Sort {
+        Sort(name.to_string())
+    }
+
+    /// The default sort, used when a symbol or binder gives no sort.
+    pub fn ind() -> Sort {
+        Sort::named("Ind")
+    }
+}
+
+impl fmt::Display for Sort {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        write!(f, "{}", self.0)
+    }
+}
 
 /// A first-order term.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -88,9 +110,9 @@ pub enum Prop {
     Imp(Box<Prop>, Box<Prop>),
     /// Universal quantification over a propositional variable: `forall p. A`.
     Forall(String, Box<Prop>),
-    /// Universal quantification over individuals: `forall x. A`.
-    ForallInd(String, Box<Prop>),
-    /// Equality of two terms.
+    /// Universal quantification over individuals of a sort: `forall x:S. A`.
+    ForallInd(String, Sort, Box<Prop>),
+    /// Equality of two terms of the same sort.
     Eq(Term, Term),
     /// A predicate symbol applied to terms.
     Pred(String, Vec<Term>),
@@ -112,9 +134,14 @@ impl Prop {
         Prop::Forall(name.to_string(), Box::new(body))
     }
 
-    /// Builds the quantified proposition `forall name. body` over individuals.
+    /// Builds `forall name:Ind. body`, over the default sort.
     pub fn forall_ind(name: &str, body: Prop) -> Prop {
-        Prop::ForallInd(name.to_string(), Box::new(body))
+        Prop::forall_sorted(name, Sort::ind(), body)
+    }
+
+    /// Builds `forall name:sort. body`.
+    pub fn forall_sorted(name: &str, sort: Sort, body: Prop) -> Prop {
+        Prop::ForallInd(name.to_string(), sort, Box::new(body))
     }
 
     /// Whether the propositional variable `name` occurs free in this proposition.
@@ -123,7 +150,7 @@ impl Prop {
             Prop::Atom(atom) => atom == name,
             Prop::Imp(a, b) => a.has_free(name) || b.has_free(name),
             Prop::Forall(bound, body) => bound != name && body.has_free(name),
-            Prop::ForallInd(_, body) => body.has_free(name),
+            Prop::ForallInd(_, _, body) => body.has_free(name),
             Prop::Eq(_, _) | Prop::Pred(_, _) => false,
         }
     }
@@ -156,7 +183,7 @@ impl Prop {
                     }
                 }
             }
-            Prop::ForallInd(_, body) => body.free_vars(out),
+            Prop::ForallInd(_, _, body) => body.free_vars(out),
             Prop::Eq(_, _) | Prop::Pred(_, _) => {}
         }
     }
@@ -170,7 +197,7 @@ impl Prop {
                 b.free_individuals(out);
             }
             Prop::Forall(_, body) => body.free_individuals(out),
-            Prop::ForallInd(bound, body) => {
+            Prop::ForallInd(bound, _, body) => {
                 let mut inner = Vec::new();
                 body.free_individuals(&mut inner);
                 for name in inner {
@@ -220,15 +247,15 @@ impl Prop {
                     Prop::forall(bound, body.substitute(name, replacement))
                 }
             }
-            Prop::ForallInd(bound, body) => {
+            Prop::ForallInd(bound, sort, body) => {
                 let mut replacement_individuals = Vec::new();
                 replacement.free_individuals(&mut replacement_individuals);
                 if replacement_individuals.contains(bound) {
                     let fresh = fresh_name(bound, &replacement_individuals, body);
                     let renamed = body.subst_individual(bound, &Term::Var(fresh.clone()));
-                    Prop::forall_ind(&fresh, renamed.substitute(name, replacement))
+                    Prop::forall_sorted(&fresh, sort.clone(), renamed.substitute(name, replacement))
                 } else {
-                    Prop::forall_ind(bound, body.substitute(name, replacement))
+                    Prop::forall_sorted(bound, sort.clone(), body.substitute(name, replacement))
                 }
             }
             Prop::Eq(_, _) | Prop::Pred(_, _) => self.clone(),
@@ -247,16 +274,24 @@ impl Prop {
             Prop::Forall(bound, body) => {
                 Prop::forall(bound, body.subst_individual(name, replacement))
             }
-            Prop::ForallInd(bound, body) if bound == name => self.clone(),
-            Prop::ForallInd(bound, body) => {
+            Prop::ForallInd(bound, _, _) if bound == name => self.clone(),
+            Prop::ForallInd(bound, sort, body) => {
                 let mut replacement_vars = Vec::new();
                 replacement.free_vars(&mut replacement_vars);
                 if replacement_vars.contains(bound) {
                     let fresh = fresh_name(bound, &replacement_vars, body);
                     let renamed = body.subst_individual(bound, &Term::Var(fresh.clone()));
-                    Prop::forall_ind(&fresh, renamed.subst_individual(name, replacement))
+                    Prop::forall_sorted(
+                        &fresh,
+                        sort.clone(),
+                        renamed.subst_individual(name, replacement),
+                    )
                 } else {
-                    Prop::forall_ind(bound, body.subst_individual(name, replacement))
+                    Prop::forall_sorted(
+                        bound,
+                        sort.clone(),
+                        body.subst_individual(name, replacement),
+                    )
                 }
             }
             Prop::Eq(left, right) => Prop::Eq(
@@ -332,7 +367,10 @@ fn alpha_eq_in(a: &Prop, b: &Prop, scope: &mut Scope) -> bool {
             scope.props.pop();
             equal
         }
-        (Prop::ForallInd(x, body1), Prop::ForallInd(y, body2)) => {
+        (Prop::ForallInd(x, s1, body1), Prop::ForallInd(y, s2, body2)) => {
+            if s1 != s2 {
+                return false;
+            }
             scope.individuals.push((x.clone(), y.clone()));
             let equal = alpha_eq_in(body1, body2, scope);
             scope.individuals.pop();
@@ -356,7 +394,7 @@ impl fmt::Display for Prop {
             Prop::Atom(name) => write!(f, "{name}"),
             Prop::Imp(a, b) => write!(f, "({a} -> {b})"),
             Prop::Forall(name, body) => write!(f, "(forall {name}. {body})"),
-            Prop::ForallInd(name, body) => write!(f, "(all {name}. {body})"),
+            Prop::ForallInd(name, sort, body) => write!(f, "(all {name}:{sort}. {body})"),
             Prop::Eq(l, r) => write!(f, "({l} = {r})"),
             Prop::Pred(symbol, args) if args.is_empty() => write!(f, "{symbol}"),
             Prop::Pred(symbol, args) => {
@@ -384,8 +422,8 @@ pub enum ProofTerm {
     TyLam(String, Box<ProofTerm>),
     /// Universal elimination over propositions: instantiates at a proposition.
     TyApp(Box<ProofTerm>, Prop),
-    /// Universal introduction over individuals: proves `forall name. A`.
-    IndLam(String, Box<ProofTerm>),
+    /// Universal introduction over individuals of a sort: proves `forall name:sort. A`.
+    IndLam(String, Sort, Box<ProofTerm>),
     /// Universal elimination over individuals: instantiates at a term.
     IndApp(Box<ProofTerm>, Term),
     /// Reflexivity: proves `t = t`.

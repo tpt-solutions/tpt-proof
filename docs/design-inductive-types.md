@@ -1,6 +1,6 @@
 # Design Proposal: Inductive Types and Recursion in the Kernel
 
-Status: **proposal, not approved.** No kernel code has been written for this. It needs a decision before implementation, because it changes the trusted base (SPEC.md §4, Principle 1).
+Status: **partly implemented.** Multiple sorts, inductive declarations, and kernel-generated induction axioms are in the kernel (approved 2026, decision: multiple sorts). Recursors and definitional equations are not built. See the sections below.
 
 ## Where the kernel is now
 
@@ -75,6 +75,14 @@ Not done, and a new problem found while planning induction: with a single sort, 
 - **A membership predicate** `is_T(x)` with axioms that say every `is_T` value is a constructor application. The axiom needs disjunction and existentials, which the kernel does not have yet.
 
 Recommendation: multiple sorts. It keeps each inductive type a real set and is the usual design. It needs your approval because it reverses option A.
+
+## Implemented: multiple sorts and induction
+
+Decision recorded: **multiple sorts**. Each inductive type is its own sort. `declare_inductive` declares the sort and its constructors. `declare_induction` generates the induction axiom for a predicate over the sort. The induction axiom is the usual induction principle, and it is trusted only as far as the sort is generated freely by its constructors (see `docs/kernel-logic.md`).
+
+Tests: `crates/tpt-proof-kernel/tests/sorts.rs`, including induction over naturals, induction over a tree with two recursive arguments, and rejection of a predicate over the wrong sort.
+
+Still open: recursors and definitional equations, so that functions over an inductive type can be defined in the kernel rather than only axiomatized.
 
 ## Decisions needed
 

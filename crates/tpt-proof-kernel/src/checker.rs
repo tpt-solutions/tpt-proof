@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::terms::{alpha_eq, ProofTerm, Prop, Term};
+use crate::terms::{alpha_eq, ProofTerm, Prop, Sort, Term};
 use crate::{Kernel, KernelError, Result};
 
 /// Everything in scope while checking a term.
@@ -11,8 +11,9 @@ use crate::{Kernel, KernelError, Result};
 pub(crate) struct Context {
     /// Proof variables and their propositions, innermost binding last.
     pub(crate) props: Vec<(String, Prop)>,
-    /// Individual variables bound by enclosing `forall`s, innermost last.
-    pub(crate) individuals: Vec<String>,
+    /// Individual variables bound by enclosing `forall`s and their sorts,
+    /// innermost last.
+    pub(crate) individuals: Vec<(String, Sort)>,
 }
 
 /// Infers the proposition proved by `term`, adding every axiom it depends on
@@ -95,8 +96,9 @@ pub(crate) fn infer(
             }
         }
 
-        ProofTerm::IndLam(name, body) => {
-            ctx.individuals.push(name.clone());
+        ProofTerm::IndLam(name, sort, body) => {
+            kernel.check_sort(sort)?;
+            ctx.individuals.push((name.clone(), sort.clone()));
             let body_prop = infer(kernel, ctx, body, deps);
             ctx.individuals.pop();
             let body_prop = body_prop?;
@@ -113,13 +115,19 @@ pub(crate) fn infer(
                 });
             }
             check_deps_do_not_mention(kernel, deps, name, |prop, n| prop.has_free_individual(n))?;
-            Ok(Prop::forall_ind(name, body_prop))
+            Ok(Prop::forall_sorted(name, sort.clone(), body_prop))
         }
 
         ProofTerm::IndApp(function, argument) => {
-            kernel.check_term_in(argument, &ctx.individuals)?;
-            match infer(kernel, ctx, function, deps)? {
-                Prop::ForallInd(name, body) => Ok(body.subst_individual(&name, argument)),
+            let function_prop = infer(kernel, ctx, function, deps)?;
+            let found = kernel.check_term_in(argument, &ctx.individuals)?;
+            match function_prop {
+                Prop::ForallInd(name, expected, body) => {
+                    if found != expected {
+                        return Err(KernelError::SortMismatch { expected, found });
+                    }
+                    Ok(body.subst_individual(&name, argument))
+                }
                 other => Err(KernelError::NotForallInd(other)),
             }
         }
@@ -155,21 +163,30 @@ pub(crate) fn infer(
         }
 
         ProofTerm::Cong(symbol, args) => {
-            let arity = kernel
-                .arity(symbol)
+            let (arg_sorts, _) = kernel
+                .signature(symbol)
                 .ok_or_else(|| KernelError::UnknownFunction(symbol.clone()))?;
-            if arity != args.len() {
+            if arg_sorts.len() != args.len() {
                 return Err(KernelError::ArityMismatch {
                     symbol: symbol.clone(),
-                    expected: arity,
+                    expected: arg_sorts.len(),
                     found: args.len(),
                 });
             }
             let mut lefts = Vec::new();
             let mut rights = Vec::new();
-            for arg in args {
+            for (arg, expected) in args.iter().zip(&arg_sorts) {
                 match infer(kernel, ctx, arg, deps)? {
                     Prop::Eq(left, right) => {
+                        for side in [&left, &right] {
+                            let found = kernel.check_term_in(side, &ctx.individuals)?;
+                            if &found != expected {
+                                return Err(KernelError::SortMismatch {
+                                    expected: expected.clone(),
+                                    found,
+                                });
+                            }
+                        }
                         lefts.push(left);
                         rights.push(right);
                     }
