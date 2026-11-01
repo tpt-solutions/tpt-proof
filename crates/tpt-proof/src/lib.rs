@@ -10,10 +10,23 @@
 //! let _ = (SLOT, handle, Bytes(4096));
 //! ```
 //!
+//! Contracts compile to debug-build checks:
+//!
+//! ```
+//! use tpt_proof::prelude::*;
+//!
+//! #[requires(divisor != 0)]
+//! #[ensures(|result| *result <= 10)]
+//! fn quotient(value: u32, divisor: u32) -> u32 {
+//!     value / divisor
+//! }
+//!
+//! assert_eq!(quotient(10, 2), 5);
+//! ```
+//!
 //! Layer 3: [`tactics`] builds proofs interactively. Each tactic produces a
 //! proof term, and the kernel checks the whole term at [`tactics::Proof::qed`].
-//! The `#[theorem]` attribute and the `by { ... }` macro DSL need the
-//! proc-macro crate and are not built yet.
+//! The `#[theorem]` attribute and the `by { ... }` macro DSL are not built yet.
 
 #![forbid(unsafe_code)]
 
@@ -23,5 +36,5 @@ pub mod tactics;
 pub mod prelude {
     pub use tpt_proof_core::prelude::*;
     pub use tpt_proof_kernel::{Kernel, ProofTerm, Prop, Theorem};
-    pub use tpt_proof_runtime::runtime_check;
+    pub use tpt_proof_macros::{ensures, requires, runtime_check};
 }

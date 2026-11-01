@@ -49,7 +49,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `tpt-proof-mir` (MIR analysis, translation)
 - [x] `tpt-proof-cli`
 - [ ] `stdlib/{collections,sync,io}`, `examples/filesystem`, `proofs/kernel_soundness`
-- [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate)
+- [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate) (tpt-proof-macros: requires, ensures, runtime_check done; refined, state_machine, theorem pending)
 
 ## Phase 1: Kernel foundation
 
@@ -73,7 +73,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 2: Layer 1, type-level specs
 
-- [ ] `#[refined(...)]` macro (e.g. `value < total_blocks`) (Index<N> done by hand; the derive needs a proc-macro crate)
+- [ ] `#[refined(...)]` macro (e.g. `value < total_blocks`) (Index<N> done by hand; the derive needs a proc-macro crate) (Index<N> done by hand; the derive needs a proc-macro crate, now available)
 - [ ] Compile-time checks via const eval plus simple bound queries (const-checked constructor done; bound queries pending)
 - [ ] `#[state_machine(...)]` type-state macro (hand-written FileHandle done; the derive is pending)
 - [x] Unit-correctness types (blocks / bytes / sectors)
@@ -84,7 +84,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 3: Layer 2, contracts
 
-- [ ] Contract macros: `#[requires]`, `#[ensures]`, `#[invariant]`, `#[assert]`, `==>` operator
+- [ ] Contract macros: `#[requires]`, `#[ensures]`, `#[invariant]`, `#[assert]`, `==>` operator (requires and ensures done as debug checks; invariant, assert, and ==> pending)
 - [ ] Research spike: Z3 proof-reconstruction strategy
 - [ ] MIR extraction (`tpt-proof-mir`): desugar, monomorphize, resolve ownership
 - [ ] Verifiable subset enforcement with clear errors for unsupported features (Phase 1 subset: safe Rust, no closures, no `dyn`, no raw pointers, no FFI)
@@ -109,7 +109,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 5: Layer 4, runtime verification
 
-- [ ] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost) (runtime_check! macro done; attribute form needs a proc-macro crate)
+- [x] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost) (runtime_check! macro done; attribute form needs a proc-macro crate) (attribute form done via tpt-proof-macros; SPEC.md example semantics)
 - [ ] proptest/quickcheck integration
 - [ ] Counterexample replay for failed static proofs
 - [ ] **Milestone: debug verification failures at runtime**

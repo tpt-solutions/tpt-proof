@@ -1,0 +1,20 @@
+[package]
+name = "tpt-proof-macros"
+description = "Attribute macros for tpt-proof: #[requires], #[ensures], and #[runtime_check]."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lib]
+proc-macro = true
+
+[dependencies]
+syn = { version = "2", features = ["full"] }
+quote = "1"
+proc-macro2 = "1"
+
+[lints]
+workspace = true

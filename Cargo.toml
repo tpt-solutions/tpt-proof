@@ -6,6 +6,7 @@ members = [
     "crates/tpt-proof-contract",
     "crates/tpt-proof",
     "crates/tpt-proof-runtime",
+    "crates/tpt-proof-macros",
     "crates/tpt-proof-mir",
     "crates/tpt-proof-cli",
 ]
