@@ -385,3 +385,109 @@ mod tests {
         }
     }
 }
+
+/// A parsed solver term: an atom or a parenthesised list.
+#[derive(Debug, Clone, PartialEq, Eq)]
+enum Sexp {
+    Atom(String),
+    List(Vec<Sexp>),
+}
+
+fn parse_sexps(text: &str) -> Vec<Sexp> {
+    let mut stack: Vec<Vec<Sexp>> = vec![Vec::new()];
+    let mut atom = String::new();
+    let flush = |atom: &mut String, stack: &mut Vec<Vec<Sexp>>| {
+        if !atom.is_empty() {
+            if let Some(top) = stack.last_mut() {
+                top.push(Sexp::Atom(std::mem::take(atom)));
+            }
+        }
+    };
+    for c in text.chars() {
+        match c {
+            '(' => {
+                flush(&mut atom, &mut stack);
+                stack.push(Vec::new());
+            }
+            ')' => {
+                flush(&mut atom, &mut stack);
+                if stack.len() > 1 {
+                    let list = stack.pop().unwrap_or_default();
+                    if let Some(top) = stack.last_mut() {
+                        top.push(Sexp::List(list));
+                    }
+                }
+            }
+            c if c.is_whitespace() => flush(&mut atom, &mut stack),
+            c => atom.push(c),
+        }
+    }
+    flush(&mut atom, &mut stack);
+    stack.into_iter().next().unwrap_or_default()
+}
+
+/// Renders a model value as the solver's integer or boolean text, without the
+/// `(- n)` wrapper that the solver uses for negative numbers.
+fn render_value(value: &Sexp) -> String {
+    match value {
+        Sexp::Atom(atom) => atom.clone(),
+        Sexp::List(items) => match items.as_slice() {
+            [Sexp::Atom(op), Sexp::Atom(n)] if op == "-" => format!("-{n}"),
+            _ => format!("{items:?}"),
+        },
+    }
+}
+
+fn collect_definitions(sexps: &[Sexp], out: &mut Vec<(String, String)>) {
+    for sexp in sexps {
+        if let Sexp::List(items) = sexp {
+            match items.as_slice() {
+                [Sexp::Atom(head), Sexp::Atom(name), _, _, value] if head == "define-fun" => {
+                    out.push((name.clone(), render_value(value)));
+                }
+                _ => collect_definitions(items, out),
+            }
+        }
+    }
+}
+
+/// The variable values in a counterexample: `(name, value)` pairs in the order the
+/// solver reports them. Values are integers or `true` and `false`.
+pub fn counterexample_values(counterexample: &str) -> Vec<(String, String)> {
+    let mut out = Vec::new();
+    collect_definitions(&parse_sexps(counterexample), &mut out);
+    out
+}
+
+#[cfg(test)]
+mod model_tests {
+    use super::*;
+
+    #[test]
+    fn reads_integer_and_negative_values() {
+        let model =
+            "(\n  (define-fun _2 () Int\n    (- 7))\n  (define-fun _1 () Int\n    255)\n)\n";
+        assert_eq!(
+            counterexample_values(model),
+            vec![
+                ("_2".to_string(), "-7".to_string()),
+                ("_1".to_string(), "255".to_string()),
+            ]
+        );
+    }
+
+    #[test]
+    fn reads_boolean_values() {
+        let model = "(\n  (define-fun flag () Bool\n    false)\n)";
+        assert_eq!(
+            counterexample_values(model),
+            vec![("flag".to_string(), "false".to_string())]
+        );
+    }
+
+    #[test]
+    fn an_empty_or_unrelated_model_has_no_values() {
+        assert!(counterexample_values("").is_empty());
+        assert!(counterexample_values("(error \"oops\")").is_empty());
+    }
+}

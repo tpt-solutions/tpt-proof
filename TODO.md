@@ -86,17 +86,17 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Phase 3: Layer 2, contracts
 
 - [ ] Contract macros: `#[requires]`, `#[ensures]`, `#[invariant]`, `#[assert]`, `==>` operator (requires and ensures done as debug checks; invariant, assert, and ==> pending)
-- [ ] Research spike: Z3 proof-reconstruction strategy
+- [x] Research spike: Z3 proof-reconstruction strategy (docs/spike-proof-reconstruction.md: Z3 emits proof objects; arithmetic steps are the hard part; no checker yet)
 - [ ] MIR extraction (`tpt-proof-mir`): desugar, monomorphize, resolve ownership (done for integer and bool functions with straight-line code, `if`, and asserts: MIR asserts become VCs checked by Z3, and each unsupported construct is reported. Contracts `requires` and `ensures` are read from doc markers and checked; loops with line-anchored `#[invariant(line, cond)]` are checked with the entry, havoc, and preservation rule; generic calls and mutable references are pending; shared references to scalars are supported (a reference is modelled by its pointee, sound by rustc's borrow check); signed division and remainder use Rust truncation, checked against concrete values; direct calls use callee contracts as summaries, which are assumed on the callee's own verification; unsigned division and remainder, and multiplication with overflow checks, are supported)
 - [x] Verifiable subset enforcement: unsupported constructs are reported by name, never verified (integer and bool subset only; see the MIR crate)
 - [ ] Ownership/borrow model (linear resources, loans)
 - [ ] VC generation (`vc.rs`): weakest precondition, loops via invariants, overflow/bounds checks (WP, loop havoc, and range (overflow) obligations done; array bounds pending; source language is a model, not MIR)
 - [x] SMT-LIB encoding and `z3` subprocess driver (timeouts, resource limits) (verified against z3 5.3.3: the 3 ignored solver tests pass with `cargo test -- --ignored`)
 - [ ] Proof-producing reflection: convert Z3 output to kernel proof terms; fail if not checkable
-- [ ] Counterexample extraction and reporting (raw solver model only; not parsed into values)
+- [x] Counterexample extraction and reporting (model parsed into name-value pairs and printed by the driver)
 - [ ] Result states: Verified / Unverified / Failed / Timeout, never silent fallback (Outcome done; Verified is unreachable until proof reflection exists)
 - [ ] Caching and incremental verification
-- [ ] `tpt-proof-cli` (`cargo tpt-proof verify`), diagnostics UX
+- [ ] `tpt-proof-cli` (`cargo tpt-proof verify`), diagnostics UX (`tpt-proof verify <file>` runs the MIR driver; the driver needs the nightly runtime environment, so it works under cargo, not as a bare binary yet)
 - [ ] **Milestone: verify simple function contracts**
 
 ## Phase 4: Layer 3, interactive proofs

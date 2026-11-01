@@ -16,6 +16,7 @@ use rustc_driver::{Callbacks, Compilation};
 use rustc_hir::def::DefKind;
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::TyCtxt;
+use tpt_proof_contract::smt::counterexample_values;
 use tpt_proof_contract::{check, Outcome, SolverConfig};
 use tpt_proof_mir::translate::translate;
 
@@ -41,7 +42,11 @@ impl Callbacks for Verify {
                                 "proved (solver unsat, not kernel-checked)".to_string()
                             }
                             Outcome::Failed { counterexample } => {
-                                format!("counterexample: {}", counterexample.replace('\n', " "))
+                                let values: Vec<String> = counterexample_values(&counterexample)
+                                    .into_iter()
+                                    .map(|(name, value)| format!("{name} = {value}"))
+                                    .collect();
+                                format!("counterexample: {}", values.join(", "))
                             }
                             Outcome::Timeout => "timeout".to_string(),
                             Outcome::Unknown(reason) => format!("unknown: {reason}"),
