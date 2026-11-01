@@ -1,0 +1,12 @@
+[package]
+name = "tpt-proof-core"
+description = "Layer 1 of tpt-proof: refined types, state machines, and unit correctness."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[lints]
+workspace = true

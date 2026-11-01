@@ -1,0 +1,7 @@
+[book]
+title = "tpt-proof"
+authors = ["TPT Solutions"]
+language = "en"
+src = "src"
+
+[output.html]

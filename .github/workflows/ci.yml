@@ -1,0 +1,70 @@
+name: CI
+
+on:
+  push:
+  pull_request:
+
+env:
+  CARGO_TERM_COLOR: always
+
+jobs:
+  test:
+    name: Build and test
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt, clippy
+      - run: cargo build --workspace --all-targets
+      - run: cargo test --workspace
+
+  fmt:
+    name: Format
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: rustfmt
+      - run: cargo fmt --all -- --check
+
+  clippy:
+    name: Clippy
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          components: clippy
+      - run: cargo clippy --workspace --all-targets -- -D warnings
+
+  deny:
+    name: Licenses and advisories
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: EmbarkStudios/cargo-deny-action@v2
+
+  kernel-tcb:
+    name: Kernel TCB checks
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+      - uses: dtolnay/rust-toolchain@stable
+      - name: Kernel has zero dependencies
+        run: |
+          count=$(cargo tree -p tpt-proof-kernel --edges normal,build,dev --prefix none | sort -u | wc -l)
+          if [ "$count" -ne 1 ]; then
+            echo "tpt-proof-kernel must have no dependencies (found $((count - 1)))"
+            cargo tree -p tpt-proof-kernel --edges normal,build,dev
+            exit 1
+          fi
+      - name: Kernel is under 5,000 lines
+        run: |
+          lines=$(cat crates/tpt-proof-kernel/src/*.rs | wc -l)
+          echo "kernel source lines: $lines"
+          if [ "$lines" -ge 5000 ]; then
+            echo "kernel exceeds the 5,000-line TCB budget (SPEC.md §4)"
+            exit 1
+          fi

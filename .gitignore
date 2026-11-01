@@ -1,0 +1,17 @@
+# Build output
+/target/
+**/*.rs.bk
+
+# Lockfile is committed for the CLI and examples; revisit when libraries are published
+# Cargo.lock
+
+# Editor and OS files
+.idea/
+.vscode/
+*.swp
+.DS_Store
+Thumbs.db
+
+# Local verification artifacts
+*.smt2.out
+/.tpt-cache/

@@ -1,0 +1,6 @@
+# Phase 0 pins stable so every crate builds today. The MIR crate (tpt-proof-mir)
+# needs a pinned nightly (rustc_private); that pin is added when that crate is
+# implemented in Phase 3. See TODO.md.
+[toolchain]
+channel = "stable"
+components = ["rustfmt", "clippy"]

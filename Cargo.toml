@@ -1,0 +1,23 @@
+[workspace]
+resolver = "2"
+members = [
+    "crates/tpt-proof-kernel",
+    "crates/tpt-proof-core",
+    "crates/tpt-proof-contract",
+    "crates/tpt-proof",
+    "crates/tpt-proof-runtime",
+    "crates/tpt-proof-mir",
+    "crates/tpt-proof-cli",
+]
+
+[workspace.package]
+version = "0.0.1"
+edition = "2021"
+rust-version = "1.80"
+license = "MIT OR Apache-2.0"
+authors = ["TPT Solutions"]
+publish = false
+
+[workspace.lints.rust]
+unsafe_code = "forbid"
+missing_docs = "warn"
