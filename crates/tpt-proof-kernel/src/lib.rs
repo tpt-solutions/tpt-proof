@@ -454,12 +454,34 @@ impl Kernel {
         result: &Sort,
         cases: &[(&str, Term)],
     ) -> Result<()> {
+        self.define_by_recursion_with_params(symbol, sort, &[], result, cases)
+    }
+
+    /// Like [`Kernel::define_by_recursion`], with extra parameters after the
+    /// recursive argument. Inside a case, the parameters are the individual
+    /// variables `p0`, `p1`, ... and the symbol takes them after its recursive
+    /// argument: `symbol(a_j, t1, .., tk)`.
+    ///
+    /// Only the first argument must be structural. The other arguments may be any
+    /// well-sorted terms, so a definition like `add(succ(a0), y) = succ(add(a0, y))`
+    /// is accepted. It stays conservative for the same reason as before: each
+    /// equation fixes the value on one constructor, and recursion goes down the
+    /// first argument.
+    pub fn define_by_recursion_with_params(
+        &mut self,
+        symbol: &str,
+        sort: &Sort,
+        params: &[Sort],
+        result: &Sort,
+        cases: &[(&str, Term)],
+    ) -> Result<()> {
         let constructors = self
             .inductives
             .get(&sort.0)
             .cloned()
             .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
         self.check_sort(result)?;
+        self.check_sorts(params.iter())?;
         if self.functions.contains_key(symbol) {
             return Err(KernelError::DuplicateName(symbol.to_string()));
         }
@@ -481,14 +503,17 @@ impl Kernel {
 
         // The symbol must be visible while its bodies are checked. Remove it
         // again if any check fails, so a rejected definition leaves no trace.
+        let mut arg_sorts = vec![sort.clone()];
+        arg_sorts.extend(params.iter().cloned());
         self.functions.insert(
             symbol.to_string(),
             Signature {
-                args: vec![sort.clone()],
+                args: arg_sorts,
                 result: result.clone(),
             },
         );
-        let equations = self.recursion_equations(symbol, sort, result, &constructors, &bodies);
+        let equations =
+            self.recursion_equations(symbol, sort, params, result, &constructors, &bodies);
         let equations = match equations {
             Ok(equations) => equations,
             Err(err) => {
@@ -517,16 +542,19 @@ impl Kernel {
         &self,
         symbol: &str,
         sort: &Sort,
+        params: &[Sort],
         result: &Sort,
         constructors: &[(String, Vec<Sort>)],
         bodies: &BTreeMap<&str, &Term>,
     ) -> Result<Vec<(String, Prop)>> {
+        let param_names: Vec<String> = (0..params.len()).map(|i| format!("p{i}")).collect();
         let mut equations = Vec::new();
         for (constructor, args) in constructors {
             let body = bodies[constructor.as_str()];
             let binders: Vec<String> = (0..args.len()).map(|j| format!("a{j}")).collect();
-            let scope: Vec<(String, Sort)> =
+            let mut scope: Vec<(String, Sort)> =
                 binders.iter().cloned().zip(args.iter().cloned()).collect();
+            scope.extend(param_names.iter().cloned().zip(params.iter().cloned()));
             let found = self.check_term_in(body, &scope)?;
             if &found != result {
                 return Err(KernelError::SortMismatch {
@@ -543,9 +571,14 @@ impl Kernel {
             check_structural(symbol, body, &recursive)?;
 
             let applied = Term::app(constructor, binders.iter().map(|b| Term::var(b)).collect());
-            let mut prop = Prop::Eq(Term::app(symbol, vec![applied]), (*body).clone());
+            let mut call_args = vec![applied];
+            call_args.extend(param_names.iter().map(|p| Term::var(p)));
+            let mut prop = Prop::Eq(Term::app(symbol, call_args), (*body).clone());
             for (binder, arg) in binders.iter().zip(args).rev() {
                 prop = Prop::forall_sorted(binder, arg.clone(), prop);
+            }
+            for (name, sort) in param_names.iter().zip(params).rev() {
+                prop = Prop::forall_sorted(name, sort.clone(), prop);
             }
             equations.push((format!("{symbol}_{constructor}"), prop));
         }
@@ -695,8 +728,10 @@ impl Kernel {
 fn check_structural(symbol: &str, term: &Term, recursive: &[String]) -> Result<()> {
     match term {
         Term::Var(_) => Ok(()),
-        Term::Fun(name, args) if name == symbol => match args.as_slice() {
-            [Term::Var(arg)] if recursive.contains(arg) => Ok(()),
+        Term::Fun(name, args) if name == symbol => match args.split_first() {
+            Some((Term::Var(arg), rest)) if recursive.contains(arg) => rest
+                .iter()
+                .try_for_each(|extra| check_structural(symbol, extra, recursive)),
             _ => Err(KernelError::NotStructural(symbol.to_string())),
         },
         Term::Fun(_, args) => args

@@ -140,7 +140,7 @@ This is a conservative extension. Each equation fixes `f` on one constructor, an
 
 ## Not yet in the logic
 
-- Non-recursive pattern matching and recursion over several arguments (structural recursion so far takes one argument of the recursive sort)
+- Pattern matching beyond one recursive argument, and termination checking beyond structural recursion
 - Leibniz substitution (`P(t)` and `t = s` give `P(s)`), which needs predicate variables
 - Termination checking beyond structural recursion
 
