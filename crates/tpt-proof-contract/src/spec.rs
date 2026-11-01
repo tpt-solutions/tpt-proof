@@ -165,14 +165,23 @@ impl Parser<'_> {
     }
 
     fn sum(&mut self) -> Result<Expr, SpecError> {
-        let mut left = self.unary()?;
+        let mut left = self.product()?;
         while let Some(op) = self.eat_op(&["+", "-"]) {
-            let right = self.unary()?;
+            let right = self.product()?;
             left = if op == "+" {
                 Expr::Add(Box::new(left), Box::new(right))
             } else {
                 Expr::Sub(Box::new(left), Box::new(right))
             };
+        }
+        Ok(left)
+    }
+
+    fn product(&mut self) -> Result<Expr, SpecError> {
+        let mut left = self.unary()?;
+        while self.eat_op(&["*"]).is_some() {
+            let right = self.unary()?;
+            left = Expr::Mul(Box::new(left), Box::new(right));
         }
         Ok(left)
     }
@@ -289,7 +298,6 @@ mod tests {
         assert!(parse("x >", &names()).is_err());
         assert!(parse("(x > 0", &names()).is_err());
         assert!(parse("x > 0 )", &names()).is_err());
-        assert!(parse("x * 2 > 0", &names()).is_err());
         assert!(parse("x @ 2", &names()).is_err());
     }
 
@@ -303,5 +311,39 @@ mod tests {
             goal: parse("x + 1 <= 100", &names()).expect("parses"),
         };
         assert!(encode(&vc).is_ok());
+    }
+}
+
+#[cfg(test)]
+mod multiplication_tests {
+    use super::*;
+
+    #[test]
+    fn multiplication_binds_tighter_than_addition() {
+        let parsed = parse(
+            "x + 2 * y > 0",
+            &[("x", Expr::Var("_1".into())), ("y", Expr::Var("_2".into()))],
+        )
+        .expect("parses");
+        let product = Expr::Mul(Box::new(Expr::Int(2)), Box::new(Expr::Var("_2".into())));
+        assert_eq!(
+            parsed,
+            Expr::Lt(
+                Box::new(Expr::Int(0)),
+                Box::new(Expr::Add(
+                    Box::new(Expr::Var("_1".into())),
+                    Box::new(product)
+                )),
+            )
+        );
+    }
+
+    #[test]
+    fn deref_still_works_at_the_start_of_an_operand() {
+        let names = [("x", Expr::Var("_1".into()))];
+        assert_eq!(
+            parse("*x * 2 == 4", &names).expect("parses"),
+            parse("x * 2 == 4", &names).expect("parses"),
+        );
     }
 }

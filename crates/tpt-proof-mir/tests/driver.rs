@@ -48,10 +48,10 @@ fn signed_subtraction_can_overflow_at_the_minimum() {
 }
 
 #[test]
-fn multiplication_is_reported_as_unsupported() {
+fn two_parameter_multiplication_can_overflow() {
     let report = verdicts_for("unsupported_mul.rs");
     let line = line_for(&report, "mul");
-    assert!(line.contains("unsupported"), "{line}");
+    assert!(line.contains("counterexample"), "{line}");
 }
 
 #[test]
@@ -152,4 +152,41 @@ fn a_loop_without_an_invariant_is_reported_with_its_line() {
         line.contains("unsupported") && line.contains("no invariant"),
         "{line}"
     );
+}
+
+#[test]
+fn an_overflowing_multiplication_gets_a_counterexample() {
+    let report = verdicts_for("mul_overflow.rs");
+    let line = line_for(&report, "double");
+    assert!(line.contains("counterexample"), "{line}");
+}
+
+#[test]
+fn a_guarded_multiplication_is_proved_under_its_branch() {
+    let report = verdicts_for("mul_guarded.rs");
+    let lines = lines_for(&report, "double_small");
+    assert!(!lines.is_empty(), "{report}");
+    assert!(lines.iter().all(|line| line.contains("proved")), "{report}");
+}
+
+#[test]
+fn an_unguarded_division_gets_a_zero_divisor_counterexample() {
+    let report = verdicts_for("div_unguarded.rs");
+    let line = line_for(&report, "quotient");
+    assert!(line.contains("counterexample"), "{line}");
+}
+
+#[test]
+fn a_guarded_division_is_proved_and_its_result_is_bounded() {
+    let report = verdicts_for("div_guarded.rs");
+    let lines = lines_for(&report, "quotient_guarded");
+    assert!(lines.len() >= 3, "{report}");
+    assert!(lines.iter().all(|line| line.contains("proved")), "{report}");
+}
+
+#[test]
+fn signed_remainder_is_reported_as_unsupported() {
+    let report = verdicts_for("rem_signed.rs");
+    let line = line_for(&report, "remainder");
+    assert!(line.contains("unsupported"), "{line}");
 }

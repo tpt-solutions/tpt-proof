@@ -27,6 +27,14 @@ pub enum Expr {
     Add(Box<Expr>, Box<Expr>),
     /// Integer subtraction.
     Sub(Box<Expr>, Box<Expr>),
+    /// Integer multiplication. Non-linear terms are harder for the solver; it may
+    /// answer `unknown` for them.
+    Mul(Box<Expr>, Box<Expr>),
+    /// Integer division, rounding toward zero for non-negative operands. Signed
+    /// division needs different rounding, so the translator does not produce it.
+    Div(Box<Expr>, Box<Expr>),
+    /// Integer remainder, for non-negative operands. See [`Expr::Div`].
+    Rem(Box<Expr>, Box<Expr>),
     /// Integer less-than.
     Lt(Box<Expr>, Box<Expr>),
     /// Integer less-than-or-equal.

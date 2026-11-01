@@ -88,6 +88,9 @@ fn render(expr: &Expr) -> String {
         Expr::Var(name) => name.clone(),
         Expr::Add(a, b) => binary("+", a, b),
         Expr::Sub(a, b) => binary("-", a, b),
+        Expr::Mul(a, b) => binary("*", a, b),
+        Expr::Div(a, b) => binary("div", a, b),
+        Expr::Rem(a, b) => binary("mod", a, b),
         Expr::Lt(a, b) => binary("<", a, b),
         Expr::Le(a, b) => binary("<=", a, b),
         Expr::Eq(a, b) => binary("=", a, b),
@@ -126,7 +129,7 @@ fn sort_of(expr: &Expr, env: &[(&str, Sort)]) -> Result<Sort, EncodeError> {
         Expr::Int(_) => Ok(Sort::Int),
         Expr::Bool(_) => Ok(Sort::Bool),
         Expr::Var(name) => lookup(name),
-        Expr::Add(a, b) | Expr::Sub(a, b) => {
+        Expr::Add(a, b) | Expr::Sub(a, b) | Expr::Mul(a, b) | Expr::Div(a, b) | Expr::Rem(a, b) => {
             expect_sort(a, Sort::Int, env)?;
             expect_sort(b, Sort::Int, env)?;
             Ok(Sort::Int)

@@ -538,15 +538,29 @@ impl<'tcx> Translator<'_, 'tcx> {
                     BinOp::Sub | BinOp::SubUnchecked => {
                         state.locals.insert(place.local, sub(a, b));
                     }
-                    BinOp::AddWithOverflow | BinOp::SubWithOverflow => {
-                        let raw = if matches!(op, BinOp::AddWithOverflow) {
-                            add(a, b)
-                        } else {
-                            sub(a, b)
+                    BinOp::Mul | BinOp::MulUnchecked => {
+                        state.locals.insert(place.local, mul(a, b));
+                    }
+                    BinOp::AddWithOverflow | BinOp::SubWithOverflow | BinOp::MulWithOverflow => {
+                        let raw = match op {
+                            BinOp::AddWithOverflow => add(a, b),
+                            BinOp::SubWithOverflow => sub(a, b),
+                            _ => mul(a, b),
                         };
                         let overflowed = overflow_of(raw.clone(), lhs_ty)?;
                         state.fields.insert((place.local, 0), raw);
                         state.fields.insert((place.local, 1), overflowed);
+                    }
+                    BinOp::Div | BinOp::Rem => {
+                        if !matches!(lhs_ty.kind(), ty::Uint(_)) {
+                            return unsupported("signed division and remainder are not supported");
+                        }
+                        let value = if matches!(op, BinOp::Div) {
+                            Expr::Div(Box::new(a), Box::new(b))
+                        } else {
+                            Expr::Rem(Box::new(a), Box::new(b))
+                        };
+                        state.locals.insert(place.local, value);
                     }
                     BinOp::Lt => {
                         state.locals.insert(place.local, lt(a, b));
@@ -764,6 +778,10 @@ fn int_expr(value: i128) -> Expr {
 
 fn add(a: Expr, b: Expr) -> Expr {
     Expr::Add(Box::new(a), Box::new(b))
+}
+
+fn mul(a: Expr, b: Expr) -> Expr {
+    Expr::Mul(Box::new(a), Box::new(b))
 }
 
 fn sub(a: Expr, b: Expr) -> Expr {
