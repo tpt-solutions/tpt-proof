@@ -11,6 +11,7 @@
 #![forbid(unsafe_code)]
 
 pub mod smt;
+pub mod spec;
 pub mod vc;
 pub mod wp;
 

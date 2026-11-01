@@ -13,3 +13,6 @@ publish = false
 
 [lints.rust]
 unsafe_code = "forbid"
+
+[dependencies]
+tpt-proof-contract = { version = "0.0.1", path = "../tpt-proof-contract" }

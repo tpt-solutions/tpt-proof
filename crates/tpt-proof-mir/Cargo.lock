@@ -3,5 +3,12 @@
 version = 4
 
 [[package]]
+name = "tpt-proof-contract"
+version = "0.0.1"
+
+[[package]]
 name = "tpt-proof-mir"
 version = "0.0.1"
+dependencies = [
+ "tpt-proof-contract",
+]
