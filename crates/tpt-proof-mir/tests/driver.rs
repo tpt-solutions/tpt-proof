@@ -55,11 +55,11 @@ fn multiplication_is_reported_as_unsupported() {
 }
 
 #[test]
-fn loops_are_reported_as_unsupported() {
+fn loops_without_invariants_are_reported_as_unsupported() {
     let report = verdicts_for("unsupported_loop.rs");
     let line = line_for(&report, "count");
     assert!(
-        line.contains("unsupported") && line.contains("loops"),
+        line.contains("unsupported") && line.contains("no invariant"),
         "{line}"
     );
 }
@@ -108,4 +108,48 @@ fn macro_expanded_contracts_are_verified_through_the_cfg_split() {
         .unwrap_or_else(|| panic!("no ensures line in:\n{report}"));
     assert!(ensures.contains("counterexample"), "{ensures}");
     assert!(!report.contains("unsupported"), "{report}");
+}
+
+#[test]
+fn a_loop_with_a_correct_invariant_is_fully_proved() {
+    let report = verdicts_for("loop_verified.rs");
+    let lines = lines_for(&report, "count_up");
+    assert!(lines.len() >= 5, "{report}");
+    assert!(lines.iter().all(|line| line.contains("proved")), "{report}");
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("invariant is preserved")),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_loop_invariant_that_fails_on_entry_gets_a_counterexample() {
+    let report = verdicts_for("loop_wrong_invariant.rs");
+    let entry = lines_for(&report, "count_wrong")
+        .into_iter()
+        .find(|line| line.contains("holds on entry"))
+        .unwrap_or_else(|| panic!("no entry line in:\n{report}"));
+    assert!(entry.contains("counterexample"), "{entry}");
+}
+
+#[test]
+fn a_loop_invariant_that_is_not_preserved_gets_a_counterexample() {
+    let report = verdicts_for("loop_preservation_fails.rs");
+    let preserved = lines_for(&report, "count_bounded")
+        .into_iter()
+        .find(|line| line.contains("preserved"))
+        .unwrap_or_else(|| panic!("no preservation line in:\n{report}"));
+    assert!(preserved.contains("counterexample"), "{preserved}");
+}
+
+#[test]
+fn a_loop_without_an_invariant_is_reported_with_its_line() {
+    let report = verdicts_for("loop_no_invariant.rs");
+    let line = line_for(&report, "count_none");
+    assert!(
+        line.contains("unsupported") && line.contains("no invariant"),
+        "{line}"
+    );
 }

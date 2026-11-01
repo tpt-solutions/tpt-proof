@@ -25,14 +25,58 @@
 use proc_macro::TokenStream;
 use proc_macro2::TokenStream as TokenStream2;
 use quote::{quote, ToTokens};
+use syn::parse::{Parse, ParseStream};
 use syn::{
-    parse2, parse_quote, Attribute, Block, Expr, ExprClosure, ItemFn, Pat, ReturnType, Stmt, Type,
+    parse2, parse_quote, Attribute, Block, Expr, ExprClosure, ItemFn, LitInt, Pat, ReturnType,
+    Stmt, Token, Type,
 };
 
 /// Doc marker prefix for preconditions. Must match `tpt-proof-mir`.
 const REQUIRES_MARKER: &str = "tpt-proof-requires:";
 /// Doc marker prefix for postconditions. Must match `tpt-proof-mir`.
 const ENSURES_MARKER: &str = "tpt-proof-ensures:";
+/// Doc marker prefix for loop invariants. Must match `tpt-proof-mir`.
+const INVARIANT_MARKER: &str = "tpt-proof-invariant:";
+
+/// Declares the invariant of the loop that starts on source line `line`.
+///
+/// ```text
+/// #[invariant(4, i <= n && total == i)]
+/// fn sum(n: u32) -> u32 { /* a while loop starting on line 4 */ }
+/// ```
+///
+/// The invariant is a verification condition only. It has no runtime check,
+/// because a loop body is not rewritten.
+#[proc_macro_attribute]
+pub fn invariant(args: TokenStream, item: TokenStream) -> TokenStream {
+    into_output(expand_invariant(args.into(), item.into()))
+}
+
+/// The arguments of `#[invariant(line, condition)]`.
+struct InvariantArgs {
+    line: LitInt,
+    condition: Expr,
+}
+
+impl Parse for InvariantArgs {
+    fn parse(input: ParseStream<'_>) -> syn::Result<Self> {
+        let line = input.parse()?;
+        input.parse::<Token![,]>()?;
+        let condition = input.parse()?;
+        Ok(InvariantArgs { line, condition })
+    }
+}
+
+fn expand_invariant(args: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> {
+    let args: InvariantArgs = parse2(args)?;
+    let mut function: ItemFn = parse2(item)?;
+    let line: u32 = args.line.base10_parse()?;
+    let text = args.condition.to_token_stream().to_string();
+    function
+        .attrs
+        .push(marker(INVARIANT_MARKER, &format!("{line}: {text}")));
+    Ok(quote!(#function))
+}
 
 /// Checks a precondition on entry to the function.
 ///
@@ -183,6 +227,28 @@ mod tests {
         assert!(expanded.contains("tpt-proof-ensures"), "{expanded}");
         assert!(expanded.contains("tpt_proof_verify"), "{expanded}");
         assert!(expanded.contains("__tpt_result"), "{expanded}");
+    }
+
+    #[test]
+    fn invariant_records_its_line_and_condition() {
+        let expanded = expand_invariant(
+            "4, i <= n".parse().expect("tokens"),
+            function("fn sum(n: u32) -> u32 { n }"),
+        )
+        .expect("expands")
+        .to_string();
+        assert!(expanded.contains("tpt-proof-invariant"), "{expanded}");
+        assert!(
+            expanded.contains("tpt-proof-invariant: 4: i <= n"),
+            "{expanded}"
+        );
+    }
+
+    #[test]
+    fn invariant_needs_a_line_and_a_condition() {
+        let function = function("fn sum(n: u32) -> u32 { n }");
+        assert!(expand_invariant("i <= n".parse().expect("tokens"), function.clone()).is_err());
+        assert!(expand_invariant("4".parse().expect("tokens"), function).is_err());
     }
 
     #[test]
