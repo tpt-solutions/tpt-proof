@@ -59,7 +59,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] Contexts, variable binding, capture-avoiding substitution
 - [ ] Proof checker (`checker.rs`): Var, Lam, App, Forall, Constr, Match, Axiom (partial: Var, Lam, App, Axiom, Const, TyLam, TyApp done; Constr, Match pending)
 - [x] Inductive type declarations, multiple sorts, and induction axioms (positivity holds by construction: first-order arguments only; recursors pending)
-- [ ] Recursive function definitions + termination checking
+- [x] Recursive function definitions: structural recursion via `define_by_recursion` (general termination checking pending)
 - [x] Equality: refl, symm, trans, congruence (ground terms over uninterpreted symbols; Leibniz substitution pending)
 - [x] Individual quantification (`forall x. A`), individual variables, and predicate symbols, with the generalization side condition (added beyond the original plan; see docs/design-inductive-types.md)
 - [ ] Trusted axioms (`axioms.rs`): logical, equality, bounded arithmetic

@@ -134,12 +134,14 @@ implies                           forall x:T. P(x)
 
 **Trust assumption.** This axiom is sound only if `T` is generated freely by its constructors: every value of sort `T` is built from them. The kernel cannot prove that for an uninterpreted sort, so it is part of the trusted base. Every theorem that uses an induction axiom lists it in its dependencies, so the assumption is visible in each proof.
 
-Not yet built: recursors and definitional equations on constructors, so functions over `T` cannot be defined in the kernel.
+Structural recursion: `define_by_recursion(f, T, R, cases)` defines `f : T -> R` with one case per constructor. Inside a case, recursive calls must be written `f(a_j)` on a recursive argument `a_j`, and nothing else may call `f`. The kernel checks the cases and generates one defining equation per constructor, `forall a. f(C(a)) = body`, as an axiom named `f_C`.
+
+This is a conservative extension. Each equation fixes `f` on one constructor, and every recursive call is on a structurally smaller argument, so it adds no contradiction. A model is the term algebra of the constructors, which satisfies every equation, so the extension is consistent without the induction assumption. A rejected definition is rolled back and leaves no symbol behind.
 
 ## Not yet in the logic
 
-- Recursors and definitional equations for inductive types
+- Non-recursive pattern matching and recursion over several arguments (structural recursion so far takes one argument of the recursive sort)
 - Leibniz substitution (`P(t)` and `t = s` give `P(s)`), which needs predicate variables
-- Recursive definitions with termination checking
+- Termination checking beyond structural recursion
 
 Each needs its own rules here before it is implemented.

@@ -1,6 +1,6 @@
 # Design Proposal: Inductive Types and Recursion in the Kernel
 
-Status: **partly implemented.** Multiple sorts, inductive declarations, and kernel-generated induction axioms are in the kernel (approved 2026, decision: multiple sorts). Recursors and definitional equations are not built. See the sections below.
+Status: **implemented, with one deliberate change.** Multiple sorts, inductive declarations, induction axioms, and structural recursion are in the kernel. Structural recursion uses defining equations, not a recursor term; see the sections below.
 
 ## Where the kernel is now
 
@@ -82,7 +82,7 @@ Decision recorded: **multiple sorts**. Each inductive type is its own sort. `dec
 
 Tests: `crates/tpt-proof-kernel/tests/sorts.rs`, including induction over naturals, induction over a tree with two recursive arguments, and rejection of a predicate over the wrong sort.
 
-Still open: recursors and definitional equations, so that functions over an inductive type can be defined in the kernel rather than only axiomatized.
+Recursion: implemented as structural definitions (`define_by_recursion`) that generate one defining equation per constructor, rather than as a recursor term. This is a conservative extension and is what the approval covered (structural only, no termination checker in the kernel). Recursion over several arguments remains open.
 
 ## Decisions needed
 

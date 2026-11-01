@@ -89,6 +89,12 @@ pub enum KernelError {
     NotInductive(String),
     /// An inductive type must have at least one constructor.
     NoConstructors(String),
+    /// A recursive definition gives a case for something that is not a constructor of its sort.
+    UnknownConstructor(String),
+    /// A recursive definition has no case for a constructor.
+    MissingCase(String),
+    /// A recursive definition calls itself on something other than a recursive argument.
+    NotStructural(String),
 }
 
 impl fmt::Display for KernelError {
@@ -136,6 +142,14 @@ impl fmt::Display for KernelError {
             KernelError::NoConstructors(name) => {
                 write!(f, "inductive type `{name}` needs at least one constructor")
             }
+            KernelError::UnknownConstructor(name) => {
+                write!(f, "`{name}` is not a constructor of this type")
+            }
+            KernelError::MissingCase(name) => write!(f, "no case for constructor `{name}`"),
+            KernelError::NotStructural(symbol) => write!(
+                f,
+                "`{symbol}` may only be called on a recursive argument of its case"
+            ),
         }
     }
 }
@@ -417,6 +431,127 @@ impl Kernel {
         )
     }
 
+    /// Defines `symbol : sort -> result` by structural recursion on an inductive
+    /// sort. `cases` gives one body per constructor. Inside a body, the
+    /// individual variables `a0`, `a1`, ... are the constructor's arguments, and
+    /// the recursive results are written `symbol(a_j)` for each recursive
+    /// argument `a_j`. Nothing else may call `symbol`.
+    ///
+    /// The kernel generates one defining equation per constructor, as a trusted
+    /// axiom named `symbol_constructor`:
+    ///
+    /// ```text
+    /// forall a0..an. symbol(C(a0..an)) = body
+    /// ```
+    ///
+    /// Each equation fixes `symbol` on one constructor, and the recursive calls
+    /// are on strictly smaller arguments, so the definition is conservative: it
+    /// adds no new contradiction and terminates by construction.
+    pub fn define_by_recursion(
+        &mut self,
+        symbol: &str,
+        sort: &Sort,
+        result: &Sort,
+        cases: &[(&str, Term)],
+    ) -> Result<()> {
+        let constructors = self
+            .inductives
+            .get(&sort.0)
+            .cloned()
+            .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
+        self.check_sort(result)?;
+        if self.functions.contains_key(symbol) {
+            return Err(KernelError::DuplicateName(symbol.to_string()));
+        }
+
+        let mut bodies: BTreeMap<&str, &Term> = BTreeMap::new();
+        for (constructor, body) in cases {
+            if !constructors.iter().any(|(name, _)| name == constructor) {
+                return Err(KernelError::UnknownConstructor(constructor.to_string()));
+            }
+            if bodies.insert(constructor, body).is_some() {
+                return Err(KernelError::DuplicateName(constructor.to_string()));
+            }
+        }
+        for (constructor, _) in &constructors {
+            if !bodies.contains_key(constructor.as_str()) {
+                return Err(KernelError::MissingCase(constructor.clone()));
+            }
+        }
+
+        // The symbol must be visible while its bodies are checked. Remove it
+        // again if any check fails, so a rejected definition leaves no trace.
+        self.functions.insert(
+            symbol.to_string(),
+            Signature {
+                args: vec![sort.clone()],
+                result: result.clone(),
+            },
+        );
+        let equations = self.recursion_equations(symbol, sort, result, &constructors, &bodies);
+        let equations = match equations {
+            Ok(equations) => equations,
+            Err(err) => {
+                self.functions.remove(symbol);
+                return Err(err);
+            }
+        };
+        for (name, _) in &equations {
+            if self.ensure_fresh(name).is_err() {
+                self.functions.remove(symbol);
+                return Err(KernelError::DuplicateName(name.clone()));
+            }
+        }
+        for (name, prop) in equations {
+            self.declare_axiom(
+                &name,
+                prop,
+                "defining equation of a structurally recursive definition (conservative)",
+            )?;
+        }
+        Ok(())
+    }
+
+    /// Checks every case body and returns the defining equation for each constructor.
+    fn recursion_equations(
+        &self,
+        symbol: &str,
+        sort: &Sort,
+        result: &Sort,
+        constructors: &[(String, Vec<Sort>)],
+        bodies: &BTreeMap<&str, &Term>,
+    ) -> Result<Vec<(String, Prop)>> {
+        let mut equations = Vec::new();
+        for (constructor, args) in constructors {
+            let body = bodies[constructor.as_str()];
+            let binders: Vec<String> = (0..args.len()).map(|j| format!("a{j}")).collect();
+            let scope: Vec<(String, Sort)> =
+                binders.iter().cloned().zip(args.iter().cloned()).collect();
+            let found = self.check_term_in(body, &scope)?;
+            if &found != result {
+                return Err(KernelError::SortMismatch {
+                    expected: result.clone(),
+                    found,
+                });
+            }
+            let recursive: Vec<String> = binders
+                .iter()
+                .zip(args)
+                .filter(|(_, arg)| *arg == sort)
+                .map(|(binder, _)| binder.clone())
+                .collect();
+            check_structural(symbol, body, &recursive)?;
+
+            let applied = Term::app(constructor, binders.iter().map(|b| Term::var(b)).collect());
+            let mut prop = Prop::Eq(Term::app(symbol, vec![applied]), (*body).clone());
+            for (binder, arg) in binders.iter().zip(args).rev() {
+                prop = Prop::forall_sorted(binder, arg.clone(), prop);
+            }
+            equations.push((format!("{symbol}_{constructor}"), prop));
+        }
+        Ok(equations)
+    }
+
     /// The argument and result sorts of a function symbol.
     pub(crate) fn signature(&self, symbol: &str) -> Option<(Vec<Sort>, Sort)> {
         self.functions
@@ -553,5 +688,19 @@ impl Kernel {
         } else {
             Ok(())
         }
+    }
+}
+
+/// Checks that `symbol` occurs only as `symbol(a)` for a recursive argument `a`.
+fn check_structural(symbol: &str, term: &Term, recursive: &[String]) -> Result<()> {
+    match term {
+        Term::Var(_) => Ok(()),
+        Term::Fun(name, args) if name == symbol => match args.as_slice() {
+            [Term::Var(arg)] if recursive.contains(arg) => Ok(()),
+            _ => Err(KernelError::NotStructural(symbol.to_string())),
+        },
+        Term::Fun(_, args) => args
+            .iter()
+            .try_for_each(|arg| check_structural(symbol, arg, recursive)),
     }
 }
