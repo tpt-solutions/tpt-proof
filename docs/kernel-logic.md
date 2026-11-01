@@ -93,13 +93,36 @@ t1 = s1, ..., tn = sn  ⊢  f(t1..tn) = f(s1..sn)   CONG   proof: Cong(f, [p1..p
 
 TRANS requires the two middle terms to be identical. CONG requires every argument proof to prove an equality, and checks the arity of `f`. An equality mentions no propositional variable, so ALL-INTRO's side condition is unaffected by it.
 
-Equality over the uninterpreted symbols is sound: every rule holds in any model where the symbols denote functions. This only reasons about ground terms. There are no individual variables yet, so nothing is quantified over individuals.
+Equality over the uninterpreted symbols is sound: every rule holds in any model where the symbols denote functions.
+
+## Individuals and predicates
+
+Individuals form one universe. Terms may contain individual variables `x`. Predicate symbols `P` of arity `n` make propositions `P(t1, ..., tn)`. Universal quantification over individuals is `forall x. A`.
+
+```
+t ::= x | f(t1, ..., tn)
+A ::= ... | P(t1, ..., tn) | forall x. A
+
+      Γ ⊢ t : A ; D      x ∈ scope(Γ)?
+  ----------------------------------------- IND-INTRO
+  Γ ⊢ /\x. t : forall x. A ; D            when x is not free in Γ or in any axiom in D
+
+
+  Γ ⊢ t : forall x. A ; D      s is a term in scope
+  ------------------------------------------------ IND-ELIM
+  Γ ⊢ t [s] : A[x := s] ; D
+```
+
+IND-INTRO has the same side condition as ALL-INTRO: a hypothesis in `Γ` or an axiom in `D` that mentions `x` makes the proof depend on one individual. Substitution `A[x := s]` renames bound individual variables when `s` contains a free variable of the same name, so instantiation does not capture.
+
+Every individual variable must be bound by an enclosing `forall`. Axioms, theorems, and assumptions must be closed: a claim that mentions an unbound individual, or an undeclared predicate or function, is rejected.
+
+Soundness is the standard first-order argument for a non-empty universe. The kernel has no `exists` and no sort system, so the universe is one set.
 
 ## Not yet in the logic
 
-- Quantification over individuals (terms of a domain such as `usize`)
-- Leibniz substitution (`p(t)` and `t = s` give `p(s)`), which needs predicate abstraction
-- Inductive types, constructors, and pattern matching
+- Inductive types, constructors, and induction. With a single sort, "every individual is built from the constructors" is false when uninterpreted constants exist, so the induction principle cannot be stated over all individuals as-is. See `docs/design-inductive-types.md`.
+- Leibniz substitution (`P(t)` and `t = s` give `P(s)`), which needs predicate variables
 - Recursive definitions with termination checking
 
 Each needs its own rules here before it is implemented.

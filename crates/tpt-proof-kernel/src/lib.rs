@@ -26,6 +26,8 @@ pub use terms::{ProofTerm, Prop, Term};
 pub enum KernelError {
     /// A `Var` refers to a name not bound in the local context.
     UnboundVariable(String),
+    /// An individual variable is used outside the `forall` that binds it.
+    UnboundIndividual(String),
     /// An `Axiom` refers to a name that was never declared.
     UnknownAxiom(String),
     /// A `Const` refers to a name that is not a checked theorem.
@@ -41,6 +43,8 @@ pub enum KernelError {
     },
     /// Type application of a term whose type is not a universal quantifier.
     NotAForall(Prop),
+    /// Individual application of a term whose type is not a universal quantifier over individuals.
+    NotForallInd(Prop),
     /// Universal introduction over a variable the proof depends on.
     InvalidGeneralization {
         /// The variable that could not be generalized.
@@ -52,9 +56,11 @@ pub enum KernelError {
     DuplicateName(String),
     /// A function symbol in a term or proof is not declared.
     UnknownFunction(String),
-    /// A function symbol is used with the wrong number of arguments.
+    /// A predicate symbol in a proposition is not declared.
+    UnknownPredicate(String),
+    /// A function or predicate symbol is used with the wrong number of arguments.
     ArityMismatch {
-        /// The function symbol.
+        /// The function or predicate symbol.
         symbol: String,
         /// The arity it was declared with.
         expected: usize,
@@ -76,6 +82,9 @@ impl fmt::Display for KernelError {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             KernelError::UnboundVariable(name) => write!(f, "unbound variable `{name}`"),
+            KernelError::UnboundIndividual(name) => {
+                write!(f, "individual `{name}` is not bound by a forall")
+            }
             KernelError::UnknownAxiom(name) => write!(f, "unknown axiom `{name}`"),
             KernelError::UnknownTheorem(name) => write!(f, "unknown theorem `{name}`"),
             KernelError::NotAFunction(prop) => write!(f, "applied a non-function of type {prop}"),
@@ -85,11 +94,15 @@ impl fmt::Display for KernelError {
             KernelError::NotAForall(prop) => {
                 write!(f, "instantiated a non-quantified term of type {prop}")
             }
+            KernelError::NotForallInd(prop) => {
+                write!(f, "instantiated a term of type {prop} at an individual")
+            }
             KernelError::InvalidGeneralization { variable, reason } => {
                 write!(f, "cannot generalize over `{variable}`: {reason}")
             }
             KernelError::DuplicateName(name) => write!(f, "name `{name}` is already declared"),
             KernelError::UnknownFunction(name) => write!(f, "unknown function symbol `{name}`"),
+            KernelError::UnknownPredicate(name) => write!(f, "unknown predicate symbol `{name}`"),
             KernelError::ArityMismatch {
                 symbol,
                 expected,
@@ -137,25 +150,28 @@ impl Theorem {
     }
 }
 
-/// The kernel environment: declared axioms and checked theorems.
+/// The kernel environment: declared symbols, axioms, and checked theorems.
 #[derive(Debug, Default)]
 pub struct Kernel {
     axioms: BTreeMap<String, Axiom>,
     theorems: BTreeMap<String, Theorem>,
     functions: BTreeMap<String, usize>,
+    predicates: BTreeMap<String, usize>,
     assumptions: usize,
 }
 
 impl Kernel {
-    /// Creates an empty kernel with no axioms and no theorems.
+    /// Creates an empty kernel with no symbols, axioms, or theorems.
     pub fn new() -> Self {
         Self::default()
     }
 
     /// Declares a trusted axiom. This expands the TCB, so every axiom must
-    /// carry a justification, which is recorded with it.
+    /// carry a justification, which is recorded with it. An axiom must be
+    /// closed: it cannot mention an individual variable that nothing binds.
     pub fn declare_axiom(&mut self, name: &str, prop: Prop, justification: &str) -> Result<()> {
         self.ensure_fresh(name)?;
+        self.check_prop(&prop, &[])?;
         let axiom = Axiom {
             name: name.to_string(),
             prop,
@@ -168,6 +184,7 @@ impl Kernel {
     /// Introduces an assumption for an interactive proof. It is tracked like an
     /// axiom: every theorem that uses it lists it in [`Theorem::axioms`].
     pub fn assume(&mut self, prop: Prop) -> Result<Theorem> {
+        self.check_prop(&prop, &[])?;
         self.assumptions += 1;
         let name = format!("assumption#{}", self.assumptions);
         let axiom = Axiom {
@@ -180,9 +197,10 @@ impl Kernel {
     }
 
     /// Checks `term` against `claimed`. Returns a [`Theorem`] only if the proof
-    /// is valid.
+    /// is valid. The claim must be closed and use only declared symbols.
     pub fn check_proof(&self, term: &ProofTerm, claimed: &Prop) -> Result<Theorem> {
-        let mut ctx = Vec::new();
+        self.check_prop(claimed, &[])?;
+        let mut ctx = checker::Context::default();
         let mut deps = BTreeSet::new();
         let found = checker::infer(self, &mut ctx, term, &mut deps)?;
         if !crate::terms::alpha_eq(&found, claimed) {
@@ -214,24 +232,88 @@ impl Kernel {
         Ok(())
     }
 
+    /// Declares an uninterpreted predicate symbol with the given arity.
+    pub fn declare_predicate(&mut self, symbol: &str, arity: usize) -> Result<()> {
+        if self.predicates.contains_key(symbol) {
+            return Err(KernelError::DuplicateName(symbol.to_string()));
+        }
+        self.predicates.insert(symbol.to_string(), arity);
+        Ok(())
+    }
+
     /// The declared arity of a function symbol.
     pub fn arity(&self, symbol: &str) -> Option<usize> {
         self.functions.get(symbol).copied()
     }
 
-    /// Checks that every symbol in `term` is declared, with the right arity.
+    /// Checks that a closed term uses only declared symbols, with the right arity.
     pub fn check_term(&self, term: &Term) -> Result<()> {
-        let expected = self
-            .arity(&term.symbol)
-            .ok_or_else(|| KernelError::UnknownFunction(term.symbol.clone()))?;
-        if expected != term.args.len() {
-            return Err(KernelError::ArityMismatch {
-                symbol: term.symbol.clone(),
-                expected,
-                found: term.args.len(),
-            });
+        self.check_term_in(term, &[])
+    }
+
+    /// Checks a term whose individual variables must be among `scope`.
+    pub(crate) fn check_term_in(&self, term: &Term, scope: &[String]) -> Result<()> {
+        match term {
+            Term::Var(name) => {
+                if scope.contains(name) {
+                    Ok(())
+                } else {
+                    Err(KernelError::UnboundIndividual(name.clone()))
+                }
+            }
+            Term::Fun(symbol, args) => {
+                let expected = self
+                    .arity(symbol)
+                    .ok_or_else(|| KernelError::UnknownFunction(symbol.clone()))?;
+                if expected != args.len() {
+                    return Err(KernelError::ArityMismatch {
+                        symbol: symbol.clone(),
+                        expected,
+                        found: args.len(),
+                    });
+                }
+                args.iter()
+                    .try_for_each(|arg| self.check_term_in(arg, scope))
+            }
         }
-        term.args.iter().try_for_each(|arg| self.check_term(arg))
+    }
+
+    /// Checks that a proposition uses only declared symbols and that its
+    /// individual variables are among `scope`.
+    pub(crate) fn check_prop(&self, prop: &Prop, scope: &[String]) -> Result<()> {
+        match prop {
+            Prop::Atom(_) => Ok(()),
+            Prop::Imp(a, b) => {
+                self.check_prop(a, scope)?;
+                self.check_prop(b, scope)
+            }
+            Prop::Forall(_, body) => self.check_prop(body, scope),
+            Prop::ForallInd(name, body) => {
+                let mut inner = scope.to_vec();
+                inner.push(name.clone());
+                self.check_prop(body, &inner)
+            }
+            Prop::Eq(left, right) => {
+                self.check_term_in(left, scope)?;
+                self.check_term_in(right, scope)
+            }
+            Prop::Pred(symbol, args) => {
+                let expected = self
+                    .predicates
+                    .get(symbol)
+                    .copied()
+                    .ok_or_else(|| KernelError::UnknownPredicate(symbol.clone()))?;
+                if expected != args.len() {
+                    return Err(KernelError::ArityMismatch {
+                        symbol: symbol.clone(),
+                        expected,
+                        found: args.len(),
+                    });
+                }
+                args.iter()
+                    .try_for_each(|arg| self.check_term_in(arg, scope))
+            }
+        }
     }
 
     /// Looks up a declared axiom.

@@ -58,9 +58,10 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] Opaque `Theorem` type, constructible only by the kernel
 - [x] Contexts, variable binding, capture-avoiding substitution
 - [ ] Proof checker (`checker.rs`): Var, Lam, App, Forall, Constr, Match, Axiom (partial: Var, Lam, App, Axiom, Const, TyLam, TyApp done; Constr, Match pending)
-- [ ] Inductive type declarations + positivity check
+- [ ] Inductive type declarations + positivity check (blocked on the sort decision in docs/design-inductive-types.md)
 - [ ] Recursive function definitions + termination checking
 - [x] Equality: refl, symm, trans, congruence (ground terms over uninterpreted symbols; Leibniz substitution pending)
+- [x] Individual quantification (`forall x. A`), individual variables, and predicate symbols, with the generalization side condition (added beyond the original plan; see docs/design-inductive-types.md)
 - [ ] Trusted axioms (`axioms.rs`): logical, equality, bounded arithmetic
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem
