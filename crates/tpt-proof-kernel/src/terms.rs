@@ -68,9 +68,14 @@ impl Prop {
         }
     }
 
+    /// Whether two propositions are equal up to renaming of bound variables.
+    pub fn alpha_eq(&self, other: &Prop) -> bool {
+        alpha_eq(self, other)
+    }
+
     /// Substitutes `replacement` for the free variable `name`, renaming bound
     /// variables where needed so that no free variable is captured.
-    pub(crate) fn substitute(&self, name: &str, replacement: &Prop) -> Prop {
+    pub fn substitute(&self, name: &str, replacement: &Prop) -> Prop {
         match self {
             Prop::Atom(atom) if atom == name => replacement.clone(),
             Prop::Atom(_) => self.clone(),

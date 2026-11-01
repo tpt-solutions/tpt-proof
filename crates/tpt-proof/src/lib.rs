@@ -10,10 +10,14 @@
 //! let _ = (SLOT, handle, Bytes(4096));
 //! ```
 //!
-//! Layer 3 (the proof DSL and tactics) is not built yet. It needs the proc-macro
-//! crate and the tactic framework from SPEC.md §6.
+//! Layer 3: [`tactics`] builds proofs interactively. Each tactic produces a
+//! proof term, and the kernel checks the whole term at [`tactics::Proof::qed`].
+//! The `#[theorem]` attribute and the `by { ... }` macro DSL need the
+//! proc-macro crate and are not built yet.
 
 #![forbid(unsafe_code)]
+
+pub mod tactics;
 
 /// Everything a typical user needs from each layer.
 pub mod prelude {

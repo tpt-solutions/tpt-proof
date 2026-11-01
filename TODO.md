@@ -100,12 +100,12 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 4: Layer 3, interactive proofs
 
-- [ ] DSL macros: `#[theorem]`, `#[lemma]`, `arbitrary()`, `assume()`, `show()`, `by {}`
-- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ...
-- [ ] Each tactic step emits a proof term that the kernel checks
-- [ ] Interactive mode: goal display and suggested next steps
-- [ ] Lemma library and theorem dependency/axiom reports
-- [ ] **Milestone: write and check interactive proofs**
+- [ ] DSL macros: `#[theorem]`, `#[lemma]`, `arbitrary()`, `assume()`, `show()`, `by {}` (not started: needs the proc-macro crate; tactics are the Rust API for now)
+- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact done; case_split, induct, simplify pending)
+- [x] Each tactic step emits a proof term that the kernel checks
+- [ ] Interactive mode: goal display and suggested next steps (Goal Display done; suggested next steps pending)
+- [ ] Lemma library and theorem dependency/axiom reports (declare_theorem done; a shared lemma library is pending)
+- [x] **Milestone: write and check interactive proofs** (via the tactics API)
 
 ## Phase 5: Layer 4, runtime verification
 
