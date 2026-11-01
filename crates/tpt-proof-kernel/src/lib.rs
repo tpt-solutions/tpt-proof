@@ -6,6 +6,10 @@
 //! value has been checked by this crate.
 
 #![forbid(unsafe_code)]
+// Kernel errors carry whole propositions, so the error type is large. Errors
+// only occur on rejected proofs, never on the success path, so boxing them
+// would complicate the API for no measurable gain.
+#![allow(clippy::result_large_err)]
 
 pub mod axioms;
 mod checker;
@@ -15,7 +19,7 @@ use std::collections::{BTreeMap, BTreeSet};
 use std::fmt;
 
 pub use axioms::Axiom;
-pub use terms::{ProofTerm, Prop};
+pub use terms::{ProofTerm, Prop, Term};
 
 /// Errors the kernel reports. A rejected proof is never accepted in part.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -46,6 +50,26 @@ pub enum KernelError {
     },
     /// A name is already used by an axiom or theorem.
     DuplicateName(String),
+    /// A function symbol in a term or proof is not declared.
+    UnknownFunction(String),
+    /// A function symbol is used with the wrong number of arguments.
+    ArityMismatch {
+        /// The function symbol.
+        symbol: String,
+        /// The arity it was declared with.
+        expected: usize,
+        /// The number of arguments given.
+        found: usize,
+    },
+    /// Equality reasoning was applied to something that is not an equality.
+    NotAnEquality(Prop),
+    /// Transitivity was applied to equalities that do not share a middle term.
+    TransitivityMismatch {
+        /// The right-hand side of the first equality.
+        middle: Term,
+        /// The left-hand side of the second equality.
+        found: Term,
+    },
 }
 
 impl fmt::Display for KernelError {
@@ -65,6 +89,19 @@ impl fmt::Display for KernelError {
                 write!(f, "cannot generalize over `{variable}`: {reason}")
             }
             KernelError::DuplicateName(name) => write!(f, "name `{name}` is already declared"),
+            KernelError::UnknownFunction(name) => write!(f, "unknown function symbol `{name}`"),
+            KernelError::ArityMismatch {
+                symbol,
+                expected,
+                found,
+            } => write!(f, "`{symbol}` takes {expected} argument(s), given {found}"),
+            KernelError::NotAnEquality(prop) => write!(f, "expected an equality, found {prop}"),
+            KernelError::TransitivityMismatch { middle, found } => {
+                write!(
+                    f,
+                    "transitivity needs {middle} on both sides, found {found}"
+                )
+            }
         }
     }
 }
@@ -105,6 +142,7 @@ impl Theorem {
 pub struct Kernel {
     axioms: BTreeMap<String, Axiom>,
     theorems: BTreeMap<String, Theorem>,
+    functions: BTreeMap<String, usize>,
     assumptions: usize,
 }
 
@@ -163,6 +201,37 @@ impl Kernel {
         let theorem = self.check_proof(term, claimed)?;
         self.theorems.insert(name.to_string(), theorem);
         Ok(())
+    }
+
+    /// Declares an uninterpreted function symbol with the given arity. A
+    /// symbol with arity zero is a constant. Symbols are a separate namespace
+    /// from axioms and theorems.
+    pub fn declare_function(&mut self, symbol: &str, arity: usize) -> Result<()> {
+        if self.functions.contains_key(symbol) {
+            return Err(KernelError::DuplicateName(symbol.to_string()));
+        }
+        self.functions.insert(symbol.to_string(), arity);
+        Ok(())
+    }
+
+    /// The declared arity of a function symbol.
+    pub fn arity(&self, symbol: &str) -> Option<usize> {
+        self.functions.get(symbol).copied()
+    }
+
+    /// Checks that every symbol in `term` is declared, with the right arity.
+    pub fn check_term(&self, term: &Term) -> Result<()> {
+        let expected = self
+            .arity(&term.symbol)
+            .ok_or_else(|| KernelError::UnknownFunction(term.symbol.clone()))?;
+        if expected != term.args.len() {
+            return Err(KernelError::ArityMismatch {
+                symbol: term.symbol.clone(),
+                expected,
+                found: term.args.len(),
+            });
+        }
+        term.args.iter().try_for_each(|arg| self.check_term(arg))
     }
 
     /// Looks up a declared axiom.

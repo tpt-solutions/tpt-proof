@@ -18,7 +18,8 @@ The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel)
 | Quantification over individuals | Not implemented |
 | Inductive types, `Constr`, `Match` | Not implemented |
 | `define_function` with termination checking | Not implemented |
-| Equality (refl, symm, trans, congruence) | Not implemented |
+| Equality over ground terms: refl, symm, trans, congruence, with declared function arities | Implemented |
+| Leibniz substitution | Not implemented |
 | Bounded arithmetic axioms | Not implemented |
 | Rust-semantics axioms | Not implemented |
 
@@ -38,6 +39,7 @@ None. The kernel ships with no built-in axioms. Implication introduction and eli
 
 - 2026: initial kernel with simply-typed implication logic, opaque theorems, and dependency tracking.
 - 2026: added propositional quantification with capture-avoiding substitution, alpha-equivalence, and the generalization side condition. Added property-based tests (fixed-seed generator, no dependencies).
+- 2026: added equality over ground terms of uninterpreted function symbols (refl, symm, trans, congruence). Function symbols are declared with an arity, and every term is arity-checked.
 
 ## Rules for changes
 

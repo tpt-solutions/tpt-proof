@@ -77,11 +77,29 @@ The side condition on ALL-INTRO is what keeps quantification sound. The proof ma
 
 Formal proof of (2) and (3) is the Phase 8 target (`proofs/kernel_soundness`).
 
+## Equality
+
+Terms are applications of uninterpreted function symbols: `f(t1, ..., tn)`. A constant is a symbol of arity zero. Every symbol used in a term or proof must be declared with its arity. Equality between two ground terms is a proposition, `t = s`.
+
+```
+t ::= f(t1, ..., tn)          (f declared with arity n)
+A ::= ... | t = s
+
+t = t                      REFL       proof: Refl(t)
+t = s  ⊢  s = t            SYM        proof: Sym(p)
+t = s,  s = u  ⊢  t = u    TRANS      proof: Trans(p, q)
+t1 = s1, ..., tn = sn  ⊢  f(t1..tn) = f(s1..sn)   CONG   proof: Cong(f, [p1..pn])
+```
+
+TRANS requires the two middle terms to be identical. CONG requires every argument proof to prove an equality, and checks the arity of `f`. An equality mentions no propositional variable, so ALL-INTRO's side condition is unaffected by it.
+
+Equality over the uninterpreted symbols is sound: every rule holds in any model where the symbols denote functions. This only reasons about ground terms. There are no individual variables yet, so nothing is quantified over individuals.
+
 ## Not yet in the logic
 
 - Quantification over individuals (terms of a domain such as `usize`)
+- Leibniz substitution (`p(t)` and `t = s` give `p(s)`), which needs predicate abstraction
 - Inductive types, constructors, and pattern matching
 - Recursive definitions with termination checking
-- Equality and its axioms
 
 Each needs its own rules here before it is implemented.

@@ -1,12 +1,51 @@
-//! Propositions and the proof term language.
+//! Propositions, terms, and the proof term language.
 //!
 //! The logic is a second-order propositional logic (System F restricted to
-//! propositions). Propositions are atoms, implication, and quantification over
-//! propositional variables. A proof of `p` is a term of type `p` (Curry-Howard).
-//! Individual-level quantification, equality, inductive types, and pattern
-//! matching from SPEC.md §4 are not implemented yet; see `kernel/AUDIT.md`.
+//! propositions) with equality between ground first-order terms. Propositions
+//! are atoms, implication, quantification over propositional variables, and
+//! equalities `t = s`. A proof of `p` is a term of type `p` (Curry-Howard).
+//!
+//! Terms are applications of uninterpreted function symbols, so `Fun("a", [])`
+//! is an individual constant. Quantification over individuals, inductive types,
+//! and pattern matching from SPEC.md §4 are not implemented yet; see
+//! `kernel/AUDIT.md`.
 
 use std::fmt;
+
+/// A ground first-order term: an uninterpreted function symbol applied to
+/// arguments. A symbol with no arguments is a constant.
+#[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
+pub struct Term {
+    /// The function symbol.
+    pub symbol: String,
+    /// The arguments.
+    pub args: Vec<Term>,
+}
+
+impl Term {
+    /// Builds an application of `symbol` to `args`.
+    pub fn app(symbol: &str, args: Vec<Term>) -> Term {
+        Term {
+            symbol: symbol.to_string(),
+            args,
+        }
+    }
+
+    /// Builds a constant, an application to no arguments.
+    pub fn constant(symbol: &str) -> Term {
+        Term::app(symbol, Vec::new())
+    }
+}
+
+impl fmt::Display for Term {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        if self.args.is_empty() {
+            return write!(f, "{}", self.symbol);
+        }
+        let args: Vec<String> = self.args.iter().map(|a| a.to_string()).collect();
+        write!(f, "{}({})", self.symbol, args.join(", "))
+    }
+}
 
 /// A proposition.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
@@ -17,6 +56,8 @@ pub enum Prop {
     Imp(Box<Prop>, Box<Prop>),
     /// Universal quantification over a propositional variable: `forall p. A`.
     Forall(String, Box<Prop>),
+    /// Equality of two ground terms.
+    Eq(Term, Term),
 }
 
 impl Prop {
@@ -41,6 +82,7 @@ impl Prop {
             Prop::Atom(atom) => atom == name,
             Prop::Imp(a, b) => a.has_free(name) || b.has_free(name),
             Prop::Forall(bound, body) => bound != name && body.has_free(name),
+            Prop::Eq(_, _) => false,
         }
     }
 
@@ -65,6 +107,7 @@ impl Prop {
                     }
                 }
             }
+            Prop::Eq(_, _) => {}
         }
     }
 
@@ -101,6 +144,7 @@ impl Prop {
                     Prop::forall(bound, body.substitute(name, replacement))
                 }
             }
+            Prop::Eq(_, _) => self.clone(),
         }
     }
 }
@@ -130,6 +174,7 @@ fn alpha_eq_in(a: &Prop, b: &Prop, scope: &mut Vec<(String, String)>) -> bool {
             scope.pop();
             equal
         }
+        (Prop::Eq(l1, r1), Prop::Eq(l2, r2)) => l1 == l2 && r1 == r2,
         _ => false,
     }
 }
@@ -140,6 +185,7 @@ impl fmt::Display for Prop {
             Prop::Atom(name) => write!(f, "{name}"),
             Prop::Imp(a, b) => write!(f, "({a} -> {b})"),
             Prop::Forall(name, body) => write!(f, "(forall {name}. {body})"),
+            Prop::Eq(l, r) => write!(f, "({l} = {r})"),
         }
     }
 }
@@ -161,4 +207,13 @@ pub enum ProofTerm {
     TyLam(String, Box<ProofTerm>),
     /// Universal elimination: instantiates `function` at the proposition `argument`.
     TyApp(Box<ProofTerm>, Prop),
+    /// Reflexivity: proves `t = t`.
+    Refl(Term),
+    /// Symmetry: from a proof of `t = s`, proves `s = t`.
+    Sym(Box<ProofTerm>),
+    /// Transitivity: from `t = s` and `s = u`, proves `t = u`.
+    Trans(Box<ProofTerm>, Box<ProofTerm>),
+    /// Congruence: from `t_i = s_i` for each argument, proves
+    /// `f(t_1, ..) = f(s_1, ..)`. Each argument proof must prove an equality.
+    Cong(String, Vec<ProofTerm>),
 }

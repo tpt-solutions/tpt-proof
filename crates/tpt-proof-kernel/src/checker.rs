@@ -3,7 +3,7 @@
 
 use std::collections::BTreeSet;
 
-use crate::terms::{alpha_eq, ProofTerm, Prop};
+use crate::terms::{alpha_eq, ProofTerm, Prop, Term};
 use crate::{Kernel, KernelError, Result};
 
 /// Local proof variables in scope, innermost binding last.
@@ -93,5 +93,63 @@ pub(crate) fn infer(
             Prop::Forall(name, body) => Ok(body.substitute(&name, argument)),
             other => Err(KernelError::NotAForall(other)),
         },
+
+        ProofTerm::Refl(term) => {
+            kernel.check_term(term)?;
+            Ok(Prop::Eq(term.clone(), term.clone()))
+        }
+
+        ProofTerm::Sym(proof) => match infer(kernel, ctx, proof, deps)? {
+            Prop::Eq(left, right) => Ok(Prop::Eq(right, left)),
+            other => Err(KernelError::NotAnEquality(other)),
+        },
+
+        ProofTerm::Trans(first, second) => {
+            let first_prop = infer(kernel, ctx, first, deps)?;
+            let second_prop = infer(kernel, ctx, second, deps)?;
+            let (left, middle) = match first_prop {
+                Prop::Eq(left, middle) => (left, middle),
+                other => return Err(KernelError::NotAnEquality(other)),
+            };
+            let (middle_again, right) = match second_prop {
+                Prop::Eq(middle_again, right) => (middle_again, right),
+                other => return Err(KernelError::NotAnEquality(other)),
+            };
+            if middle != middle_again {
+                return Err(KernelError::TransitivityMismatch {
+                    middle,
+                    found: middle_again,
+                });
+            }
+            Ok(Prop::Eq(left, right))
+        }
+
+        ProofTerm::Cong(symbol, args) => {
+            let arity = kernel
+                .arity(symbol)
+                .ok_or_else(|| KernelError::UnknownFunction(symbol.clone()))?;
+            if arity != args.len() {
+                return Err(KernelError::ArityMismatch {
+                    symbol: symbol.clone(),
+                    expected: arity,
+                    found: args.len(),
+                });
+            }
+            let mut lefts = Vec::new();
+            let mut rights = Vec::new();
+            for arg in args {
+                match infer(kernel, ctx, arg, deps)? {
+                    Prop::Eq(left, right) => {
+                        lefts.push(left);
+                        rights.push(right);
+                    }
+                    other => return Err(KernelError::NotAnEquality(other)),
+                }
+            }
+            Ok(Prop::Eq(
+                Term::app(symbol, lefts),
+                Term::app(symbol, rights),
+            ))
+        }
     }
 }

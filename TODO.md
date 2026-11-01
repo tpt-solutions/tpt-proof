@@ -60,7 +60,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] Proof checker (`checker.rs`): Var, Lam, App, Forall, Constr, Match, Axiom (partial: Var, Lam, App, Axiom, Const, TyLam, TyApp done; Constr, Match pending)
 - [ ] Inductive type declarations + positivity check
 - [ ] Recursive function definitions + termination checking
-- [ ] Equality: refl, symm, trans, congruence
+- [x] Equality: refl, symm, trans, congruence (ground terms over uninterpreted symbols; Leibniz substitution pending)
 - [ ] Trusted axioms (`axioms.rs`): logical, equality, bounded arithmetic
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem

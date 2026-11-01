@@ -29,6 +29,9 @@
 //! The `#[theorem]` attribute and the `by { ... }` macro DSL are not built yet.
 
 #![forbid(unsafe_code)]
+// Tactic errors carry whole propositions, so the error type is large. They are
+// only produced for rejected steps, so boxing them is not worth the API cost.
+#![allow(clippy::result_large_err)]
 
 pub mod tactics;
 
