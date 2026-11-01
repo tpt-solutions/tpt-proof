@@ -366,6 +366,17 @@ impl<'tcx> Translator<'_, 'tcx> {
         };
         match &terminator.kind {
             TerminatorKind::Return => self.check_ensures(&state),
+            TerminatorKind::Call {
+                func,
+                args,
+                destination,
+                target,
+                ..
+            } => {
+                let operands: Vec<Operand<'tcx>> =
+                    args.iter().map(|arg| arg.node.clone()).collect();
+                self.call(block, func, &operands, destination, *target, state)
+            }
             TerminatorKind::Goto { target, .. } => self.walk(*target, state),
             TerminatorKind::Assert {
                 cond,
@@ -671,6 +682,86 @@ impl<'tcx> Translator<'_, 'tcx> {
         });
     }
 
+    /// A direct call to a function without generic parameters. The callee's
+    /// `requires` must hold here, which is a VC. The result is a fresh value about
+    /// which the callee's `ensures` are assumed, so the callee must be verified
+    /// separately for that to hold. A callee with no contracts gives an unknown
+    /// result.
+    fn call(
+        &mut self,
+        block: BasicBlock,
+        func: &Operand<'tcx>,
+        args: &[Operand<'tcx>],
+        destination: &Place<'tcx>,
+        target: Option<BasicBlock>,
+        mut state: State,
+    ) -> Result<(), Unsupported> {
+        if !destination.projection.is_empty() {
+            return unsupported("calls into projections are not supported");
+        }
+        let ty::FnDef(callee, generic_args) = self.operand_ty(func)?.kind() else {
+            return unsupported("indirect calls are not supported");
+        };
+        if !generic_args.skip_binder().is_empty() {
+            return unsupported("calls to generic functions are not supported");
+        }
+        let callee = *callee;
+        if !self.tcx.is_mir_available(callee) {
+            return unsupported(format!(
+                "`{}` has no MIR to read its parameters from",
+                self.tcx.def_path_str(callee)
+            ));
+        }
+        let callee_body = self.tcx.optimized_mir(callee);
+        if args.len() != callee_body.arg_count {
+            return unsupported("call arity does not match the callee");
+        }
+
+        let mut values = Vec::new();
+        for arg in args {
+            values.push(self.operand(arg, &state)?);
+        }
+        let names = param_names(callee_body, &values);
+        let callee_name = self.tcx.def_path_str(callee);
+        let contracts = contracts(self.tcx, callee);
+
+        for text in &contracts.requires {
+            let goal = instantiate(text, &names, &[])
+                .map_err(|err| Unsupported(format!("callee `{callee_name}`: {err}")))?;
+            let label = format!(
+                "{}: call to {callee_name} at bb{}: precondition `{text}`",
+                self.name,
+                block.index()
+            );
+            self.push_vc(label, &state, goal);
+        }
+
+        let return_ty = callee_body.local_decls[Local::new(0)].ty;
+        let sort = sort_of(return_ty)?;
+        let var = format!("__c{}", self.fresh.len() + 1);
+        self.fresh.push((var.clone(), sort));
+        let result = Expr::Var(var);
+        if let Some((lo, hi)) = int_range(return_ty)? {
+            state.path.push(in_range(result.clone(), lo, hi));
+        }
+        for text in &contracts.ensures {
+            let (binder, body) = split_binder(text);
+            let mut extra = vec![("result", result.clone())];
+            if let Some(binder) = binder {
+                extra.push((binder, result.clone()));
+            }
+            let assumed = instantiate(body, &names, &extra)
+                .map_err(|err| Unsupported(format!("callee `{callee_name}`: {err}")))?;
+            state.path.push(assumed);
+        }
+
+        state.locals.insert(destination.local, result);
+        match target {
+            Some(next) => self.walk(next, state),
+            None => Ok(()),
+        }
+    }
+
     /// At a return, each postcondition becomes a VC. The result is the value of
     /// the return place, and the binder in `|result| ...` names the same value.
     fn check_ensures(&mut self, state: &State) -> Result<(), Unsupported> {
@@ -696,6 +787,20 @@ impl<'tcx> Translator<'_, 'tcx> {
         }
         Ok(())
     }
+}
+
+/// The parameter names of a body, with each name bound to the value passed for it.
+fn param_names(body: &Body<'_>, values: &[Expr]) -> Vec<(String, Expr)> {
+    let mut names = Vec::new();
+    for info in &body.var_debug_info {
+        if let VarDebugInfoContents::Place(place) = &info.value {
+            let index = place.local.index();
+            if place.projection.is_empty() && (1..=body.arg_count).contains(&index) {
+                names.push((info.name.to_string(), values[index - 1].clone()));
+            }
+        }
+    }
+    names
 }
 
 fn sort_of(ty: Ty<'_>) -> Result<Sort, Unsupported> {
@@ -806,4 +911,16 @@ fn not(a: Expr) -> Expr {
 
 fn and_all(items: Vec<Expr>) -> Expr {
     Expr::And(items)
+}
+
+/// Parses a contract condition against named values, with extra names such as
+/// `result` appended.
+fn instantiate(
+    text: &str,
+    names: &[(String, Expr)],
+    extra: &[(&str, Expr)],
+) -> Result<Expr, String> {
+    let mut all = borrow_names(names);
+    all.extend(extra.iter().cloned());
+    spec::parse(text, &all).map_err(|err| err.to_string())
 }

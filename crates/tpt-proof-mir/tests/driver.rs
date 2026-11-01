@@ -190,3 +190,35 @@ fn signed_remainder_is_reported_as_unsupported() {
     let line = line_for(&report, "remainder");
     assert!(line.contains("unsupported"), "{line}");
 }
+
+#[test]
+fn a_caller_meets_the_callee_precondition_and_inherits_its_postcondition() {
+    let report = verdicts_for("call_verified.rs");
+    let lines = lines_for(&report, "caller");
+    assert!(lines.len() >= 2, "{report}");
+    assert!(lines.iter().all(|line| line.contains("proved")), "{report}");
+    assert!(
+        lines.iter().any(|line| line.contains("precondition")),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_call_that_violates_the_callee_precondition_gets_a_counterexample() {
+    let report = verdicts_for("call_violated.rs");
+    let line = lines_for(&report, "careless")
+        .into_iter()
+        .find(|line| line.contains("precondition"))
+        .unwrap_or_else(|| panic!("no precondition line in:\n{report}"));
+    assert!(line.contains("counterexample"), "{line}");
+}
+
+#[test]
+fn an_uncontracted_callee_gives_an_unknown_result() {
+    let report = verdicts_for("call_uncontracted.rs");
+    let line = lines_for(&report, "caller_expects_more")
+        .into_iter()
+        .find(|line| line.contains("ensures"))
+        .unwrap_or_else(|| panic!("no ensures line in:\n{report}"));
+    assert!(line.contains("counterexample"), "{line}");
+}
