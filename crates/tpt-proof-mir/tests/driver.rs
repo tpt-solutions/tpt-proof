@@ -11,11 +11,22 @@ fn verdicts_for(fixture: &str) -> String {
         .output()
         .expect("run the driver");
     assert!(
-        output.status.success(),
+        matches!(output.status.code(), Some(0) | Some(1)),
         "driver failed: {}",
         String::from_utf8_lossy(&output.stderr)
     );
     String::from_utf8_lossy(&output.stdout).into_owned()
+}
+
+/// The driver's exit status for a fixture.
+fn exit_code_for(fixture: &str) -> Option<i32> {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    Command::new(env!("CARGO_BIN_EXE_tpt-proof-mir"))
+        .arg(format!("{manifest}/tests/fixtures/{fixture}"))
+        .output()
+        .expect("run the driver")
+        .status
+        .code()
 }
 
 fn line_for<'a>(report: &'a str, function: &str) -> &'a str {
@@ -300,4 +311,11 @@ fn cell_references_are_reported_as_unsupported() {
     let report = verdicts_for("cell_unsupported.rs");
     let line = line_for(&report, "get");
     assert!(line.contains("unsupported"), "{line}");
+}
+
+#[test]
+fn the_exit_status_is_zero_only_when_everything_is_proved() {
+    assert_eq!(exit_code_for("ref_ensures.rs"), Some(0));
+    assert_eq!(exit_code_for("ref_overflow.rs"), Some(1));
+    assert_eq!(exit_code_for("mut_ref_unsupported.rs"), Some(1));
 }

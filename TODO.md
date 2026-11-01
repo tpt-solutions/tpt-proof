@@ -80,7 +80,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] Unit-correctness types (blocks / bytes / sectors)
 - [x] Ghost state and phantom type helpers
 - [x] `tpt_proof::prelude`
-- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests done; trybuild and examples pending)
+- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests and trybuild tests for tpt-proof-core done; trybuild for the contract and facade crates, and examples, pending)
 - [x] **Milestone: write and check type-level specs** (hand-written; derive macros pending)
 
 ## Phase 3: Layer 2, contracts
@@ -126,7 +126,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 7: Filesystem integration
 
-- [ ] Wire up `examples/filesystem` against `tpt-filesystem`
+- [ ] Wire up `examples/filesystem` against `tpt-filesystem` (https://github.com/tpt-solutions/tpt-filesystem is empty at the time of checking; integration waits on its code)
 - [ ] Layer 1 types: block indices, sizes
 - [ ] Layer 2 contracts on most functions
 - [ ] Layer 3 proofs: B-Tree balance, CoW atomicity, transaction isolation
@@ -148,6 +148,6 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Ongoing
 
 - [ ] Fuzzing and differential testing against Kani/Creusot
-- [ ] Benchmarks (target: seconds for most verification)
+- [ ] Benchmarks (target: seconds for most verification) (kernel benchmark in docs/benchmarks.md; Z3 and end-to-end timings pending)
 - [ ] User docs, tutorials, error-message quality
 - [ ] Success-criteria review (spec section 14)

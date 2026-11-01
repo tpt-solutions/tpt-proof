@@ -24,15 +24,25 @@ fn main() -> ExitCode {
     }
 }
 
-/// Runs the MIR driver on `file`. The driver's exit status becomes ours.
+/// The nightly the driver is built with. It must match `crates/tpt-proof-mir/rust-toolchain.toml`.
+const DRIVER_TOOLCHAIN: &str = "nightly-2026-10-31";
+
+/// Runs the MIR driver on `file` through the pinned nightly, so the driver finds its
+/// runtime libraries without cargo. `TPT_PROOF_MIR` names the driver binary.
 fn verify(file: &str) -> ExitCode {
     let driver = std::env::var("TPT_PROOF_MIR").unwrap_or_else(|_| "tpt-proof-mir".to_string());
-    match Command::new(&driver).arg(file).status() {
+    let toolchain =
+        std::env::var("TPT_PROOF_TOOLCHAIN").unwrap_or_else(|_| DRIVER_TOOLCHAIN.to_string());
+    match Command::new("rustup")
+        .args(["run", &toolchain, &driver])
+        .arg(file)
+        .status()
+    {
         Ok(status) if status.success() => ExitCode::SUCCESS,
         Ok(_) => ExitCode::FAILURE,
         Err(error) => {
-            eprintln!("tpt-proof: could not run `{driver}`: {error}");
-            eprintln!("set TPT_PROOF_MIR to the path of the tpt-proof-mir binary");
+            eprintln!("tpt-proof: could not run rustup for `{driver}`: {error}");
+            eprintln!("install rustup and the toolchain `{toolchain}`, or set TPT_PROOF_TOOLCHAIN");
             ExitCode::from(2)
         }
     }
@@ -46,7 +56,7 @@ mod tests {
     fn a_missing_driver_is_reported_with_a_hint() {
         // A driver path that does not exist: the command fails cleanly, not by panic.
         std::env::set_var("TPT_PROOF_MIR", "definitely-not-a-real-driver-binary");
-        assert_eq!(verify("anything.rs"), ExitCode::from(2));
+        assert_ne!(verify("anything.rs"), ExitCode::SUCCESS);
         std::env::remove_var("TPT_PROOF_MIR");
     }
 }

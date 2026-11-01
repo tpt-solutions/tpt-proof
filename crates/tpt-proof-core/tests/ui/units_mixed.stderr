@@ -1,0 +1,7 @@
+error[E0308]: mismatched types
+ --> tests/ui/units_mixed.rs:4:25
+  |
+4 |     let _ = Blocks(2) + Bytes(4096);
+  |             ---------   ^^^^^^^^^^^ expected `Blocks`, found `Bytes`
+  |             |
+  |             expected because this is `Blocks`

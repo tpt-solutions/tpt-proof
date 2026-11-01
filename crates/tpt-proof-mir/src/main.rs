@@ -3,6 +3,10 @@
 //!
 //! A result of "proved" means Z3 reported `unsat` for the negated VC. It is not
 //! yet a kernel-checked proof (SPEC.md §2, Principle 5).
+//!
+//! The exit status is 0 only if every VC is proved and every function is in the
+//! supported subset. Anything else exits with 1, so a failed or unverified function
+//! never looks like a success.
 
 #![feature(rustc_private)]
 #![forbid(unsafe_code)]
@@ -20,8 +24,11 @@ use tpt_proof_contract::smt::counterexample_values;
 use tpt_proof_contract::{check, Outcome, SolverConfig};
 use tpt_proof_mir::translate::translate;
 
-/// Translates and checks every function in the file.
-struct Verify;
+/// Translates and checks every function in the file, counting what is not proved.
+#[derive(Default)]
+struct Verify {
+    not_proved: usize,
+}
 
 impl Callbacks for Verify {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
@@ -33,11 +40,18 @@ impl Callbacks for Verify {
             }
             let name = tcx.def_path_str(def_id);
             match translate(tcx, def_id) {
-                Err(reason) => println!("{name}: unsupported: {reason}"),
+                Err(reason) => {
+                    self.not_proved += 1;
+                    println!("{name}: unsupported: {reason}");
+                }
                 Ok(vcs) if vcs.is_empty() => println!("{name}: no assertions"),
                 Ok(vcs) => {
                     for vc in &vcs {
-                        let verdict = match check(vc, &config) {
+                        let outcome = check(vc, &config);
+                        if !matches!(outcome, Outcome::SolverUnsat) {
+                            self.not_proved += 1;
+                        }
+                        let verdict = match outcome {
                             Outcome::SolverUnsat => {
                                 "proved (solver unsat, not kernel-checked)".to_string()
                             }
@@ -74,5 +88,9 @@ fn main() {
         "--cfg=tpt_proof_verify".to_string(),
     ];
     compiler_args.extend(args[1..].iter().cloned());
-    rustc_driver::compiler_entrypoint(&compiler_args, &mut Verify);
+    let mut verify = Verify::default();
+    rustc_driver::compiler_entrypoint(&compiler_args, &mut verify);
+    if verify.not_proved > 0 {
+        std::process::exit(1);
+    }
 }

@@ -1,0 +1,15 @@
+error[E0080]: evaluation panicked: index out of bounds
+ --> tests/ui/index_out_of_bounds.rs:3:23
+  |
+3 | const BAD: Index<8> = Index::new_const(9);
+  |                       ^^^^^^^^^^^^^^^^^^^ evaluation of `BAD` failed inside this call
+  |
+note: inside `tpt_proof_core::refined::Index::<8>::new_const`
+ --> $RUST/core/src/panic.rs
+  |
+  = note: the failure occurred here
+  |
+ ::: src/refined.rs
+  |
+  |         assert!(value < N, "index out of bounds");
+  |         ----------------------------------------- in this macro invocation

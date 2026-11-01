@@ -1,0 +1,7 @@
+error[E0599]: no method named `begin_write` found for struct `FileHandle<Closed>` in the current scope
+ --> tests/ui/write_after_close.rs:5:20
+  |
+5 |     let _ = closed.begin_write();
+  |                    ^^^^^^^^^^^ method not found in `FileHandle<Closed>`
+  |
+  = note: the method was found for `FileHandle<Open>`
