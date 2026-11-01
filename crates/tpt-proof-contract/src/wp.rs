@@ -64,6 +64,10 @@ pub struct Function {
     pub body: Vec<Stmt>,
     /// Postconditions. Each becomes its own VC.
     pub ensures: Vec<Expr>,
+    /// Inclusive bounds `(var, min, max)` on integer variables. Each assignment
+    /// to a bounded variable carries an obligation that the new value is in
+    /// range. This models fixed-width overflow: a `u8` is `(x, 0, 255)`.
+    pub ranges: Vec<(String, i64, i64)>,
 }
 
 /// Errors in the function, found before any VC is built.
@@ -71,6 +75,10 @@ pub struct Function {
 pub enum WpError {
     /// An assignment to a variable not in `Function::vars`.
     UndeclaredVariable(String),
+    /// A range on a variable that is not an integer.
+    NotAnInteger(String),
+    /// A range whose minimum exceeds its maximum.
+    EmptyRange(String),
 }
 
 impl std::fmt::Display for WpError {
@@ -79,6 +87,8 @@ impl std::fmt::Display for WpError {
             WpError::UndeclaredVariable(name) => {
                 write!(f, "assignment to undeclared variable `{name}`")
             }
+            WpError::NotAnInteger(name) => write!(f, "range given for non-integer `{name}`"),
+            WpError::EmptyRange(name) => write!(f, "range for `{name}` is empty"),
         }
     }
 }
@@ -89,11 +99,20 @@ impl std::error::Error for WpError {}
 pub fn generate(function: &Function) -> Result<Vec<Vc>, WpError> {
     let declared: BTreeSet<&str> = function.vars.iter().map(|(n, _)| n.as_str()).collect();
     check_assignments(&function.body, &declared)?;
+    for (name, min, max) in &function.ranges {
+        match function.vars.iter().find(|(n, _)| n == name) {
+            None => return Err(WpError::UndeclaredVariable(name.clone())),
+            Some((_, Sort::Bool)) => return Err(WpError::NotAnInteger(name.clone())),
+            Some((_, Sort::Int)) if min > max => return Err(WpError::EmptyRange(name.clone())),
+            Some((_, Sort::Int)) => {}
+        }
+    }
 
     let mut vcs = Vec::new();
     for (index, post) in function.ensures.iter().enumerate() {
         let mut generator = Generator {
             sorts: &function.vars,
+            ranges: &function.ranges,
             fresh: Vec::new(),
             counter: 0,
         };
@@ -135,6 +154,7 @@ fn check_assignments(stmts: &[Stmt], declared: &BTreeSet<&str>) -> Result<(), Wp
 
 struct Generator<'a> {
     sorts: &'a [(String, Sort)],
+    ranges: &'a [(String, i64, i64)],
     fresh: Vec<(String, Sort)>,
     counter: usize,
 }
@@ -150,7 +170,13 @@ impl Generator<'_> {
 
     fn stmt(&mut self, stmt: &Stmt, post: Expr) -> Expr {
         match stmt {
-            Stmt::Assign { var, value } => substitute(&post, var, value),
+            Stmt::Assign { var, value } => {
+                let post = substitute(&post, var, value);
+                match self.range_of(var) {
+                    Some((min, max)) => and(in_range(value.clone(), min, max), post),
+                    None => post,
+                }
+            }
             Stmt::Assert(cond) => and(cond.clone(), post),
             Stmt::Assume(cond) => implies(cond.clone(), post),
             Stmt::If {
@@ -181,10 +207,20 @@ impl Generator<'_> {
         }
     }
 
+    fn range_of(&self, var: &str) -> Option<(i64, i64)> {
+        self.ranges
+            .iter()
+            .find(|(name, _, _)| name == var)
+            .map(|(_, min, max)| (*min, *max))
+    }
+
     /// Replaces each variable in `vars` by a fresh constant. The constant is
-    /// free in the VC, so the VC holds for every value it could take.
+    /// free in the VC, so the VC holds for every value it could take. A
+    /// havoced bounded variable is still in range at the loop head, so those
+    /// range facts are assumed.
     fn havoc(&mut self, expr: Expr, vars: &BTreeSet<String>) -> Expr {
         let mut expr = expr;
+        let mut facts = Vec::new();
         for var in vars {
             self.counter += 1;
             let fresh = format!("__h{}", self.counter);
@@ -194,10 +230,17 @@ impl Generator<'_> {
                 .find(|(name, _)| name == var)
                 .map(|(_, sort)| *sort)
                 .expect("assignments are checked against the declared variables");
+            if let Some((min, max)) = self.range_of(var) {
+                facts.push(in_range(Expr::Var(fresh.clone()), min, max));
+            }
             self.fresh.push((fresh.clone(), sort));
             expr = substitute(&expr, var, &Expr::Var(fresh));
         }
-        expr
+        if facts.is_empty() {
+            expr
+        } else {
+            implies(Expr::And(facts), expr)
+        }
     }
 }
 
@@ -246,6 +289,14 @@ fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
         Expr::Or(items) => Expr::Or(items.iter().map(go).collect()),
         Expr::Implies(a, b) => Expr::Implies(boxed(a), boxed(b)),
     }
+}
+
+/// `min <= value && value <= max`.
+fn in_range(value: Expr, min: i64, max: i64) -> Expr {
+    Expr::And(vec![
+        Expr::Le(Box::new(Expr::Int(min)), Box::new(value.clone())),
+        Expr::Le(Box::new(value), Box::new(Expr::Int(max))),
+    ])
 }
 
 fn and(a: Expr, b: Expr) -> Expr {

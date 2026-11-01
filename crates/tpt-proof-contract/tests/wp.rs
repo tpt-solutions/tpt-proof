@@ -124,6 +124,7 @@ fn count_to_n(invariant: Expr) -> Function {
             ("x".to_string(), Sort::Int),
         ],
         requires: vec![le(int_lit(0), var("n"))],
+        ranges: vec![],
         body: vec![
             assign("i", int_lit(0)),
             assign("x", int_lit(0)),
@@ -195,6 +196,7 @@ fn havoc_stops_a_loop_from_hiding_its_effects() {
         name: "clobber".to_string(),
         vars: vec![("i".to_string(), Sort::Int), ("x".to_string(), Sort::Int)],
         requires: vec![eq(var("x"), int_lit(1))],
+        ranges: vec![],
         body: vec![
             assign("i", int_lit(0)),
             Stmt::While {
@@ -215,6 +217,7 @@ fn if_statement_absolute_value() {
         name: "abs".to_string(),
         vars: vec![("x".to_string(), Sort::Int), ("y".to_string(), Sort::Int)],
         requires: vec![],
+        ranges: vec![],
         body: vec![Stmt::If {
             cond: lt(var("x"), int_lit(0)),
             then_branch: vec![assign("y", sub(int_lit(0), var("x")))],
@@ -236,6 +239,7 @@ fn assumptions_are_used_in_the_vc() {
         name: "assume".to_string(),
         vars: vec![("x".to_string(), Sort::Int)],
         requires: vec![],
+        ranges: vec![],
         body: vec![
             Stmt::Assume(lt(int_lit(0), var("x"))),
             Stmt::Assert(le(int_lit(1), var("x"))),
@@ -252,6 +256,7 @@ fn assignment_to_an_undeclared_variable_is_an_error() {
         name: "bad".to_string(),
         vars: vec![("x".to_string(), Sort::Int)],
         requires: vec![],
+        ranges: vec![],
         body: vec![assign("z", int_lit(1))],
         ensures: vec![Expr::Bool(true)],
     };
@@ -267,4 +272,77 @@ fn z3_proves_the_loop_vc() {
     let vcs = generate(&count_to_n(good_invariant())).expect("generates");
     let outcome = check(&vcs[0], &SolverConfig::default());
     assert_eq!(outcome, Outcome::SolverUnsat, "got {outcome:?}");
+}
+
+/// `x := x + 1` on a variable bounded to `0..=2`.
+fn bump_bounded(requires: Vec<Expr>) -> Function {
+    Function {
+        name: "bump".to_string(),
+        vars: vec![("x".to_string(), Sort::Int)],
+        requires,
+        body: vec![assign("x", add(var("x"), int_lit(1)))],
+        ensures: vec![Expr::Bool(true)],
+        ranges: vec![("x".to_string(), 0, 2)],
+    }
+}
+
+#[test]
+fn overflow_is_an_obligation_on_assignment() {
+    // With x = 2 the new value 3 is out of 0..=2.
+    let function = bump_bounded(vec![le(int_lit(0), var("x"))]);
+    let vcs = generate(&function).expect("generates");
+    assert!(find_counterexample(&vcs[0], 2).is_some());
+}
+
+#[test]
+fn no_overflow_when_the_precondition_keeps_the_value_in_range() {
+    let function = bump_bounded(vec![le(int_lit(0), var("x")), le(var("x"), int_lit(1))]);
+    let vcs = generate(&function).expect("generates");
+    assert_eq!(find_counterexample(&vcs[0], 2), None);
+}
+
+#[test]
+fn bounded_loop_variables_are_in_range_at_the_loop_head() {
+    // i is bounded to 0..=2. The loop only increments it while i < 2, so
+    // i == 2 holds on exit. Without the range facts the havoced i could be
+    // anything, which the oracle domain cannot show directly; the VC still
+    // must have no counterexample in range.
+    let function = Function {
+        name: "count".to_string(),
+        vars: vec![("i".to_string(), Sort::Int)],
+        requires: vec![le(int_lit(0), var("i")), le(var("i"), int_lit(2))],
+        body: vec![Stmt::While {
+            cond: lt(var("i"), int_lit(2)),
+            invariant: Expr::And(vec![le(int_lit(0), var("i")), le(var("i"), int_lit(2))]),
+            body: vec![assign("i", add(var("i"), int_lit(1)))],
+        }],
+        ensures: vec![eq(var("i"), int_lit(2))],
+        ranges: vec![("i".to_string(), 0, 2)],
+    };
+    let vcs = generate(&function).expect("generates");
+    assert_eq!(find_counterexample(&vcs[0], 2), None);
+}
+
+#[test]
+fn bad_ranges_are_rejected() {
+    let mut function = bump_bounded(vec![]);
+    function.ranges = vec![("x".to_string(), 3, 1)];
+    assert_eq!(
+        generate(&function),
+        Err(WpError::EmptyRange("x".to_string()))
+    );
+
+    function.ranges = vec![("y".to_string(), 0, 1)];
+    assert_eq!(
+        generate(&function),
+        Err(WpError::UndeclaredVariable("y".to_string()))
+    );
+
+    let mut boolean = bump_bounded(vec![]);
+    boolean.vars = vec![("x".to_string(), Sort::Bool)];
+    boolean.body = vec![];
+    assert_eq!(
+        generate(&boolean),
+        Err(WpError::NotAnInteger("x".to_string()))
+    );
 }
