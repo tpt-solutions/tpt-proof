@@ -49,7 +49,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `tpt-proof-mir` (MIR analysis, translation)
 - [x] `tpt-proof-cli`
 - [ ] `stdlib/{collections,sync,io}`, `examples/filesystem`, `proofs/kernel_soundness`
-- [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate) (tpt-proof-macros: requires, ensures, runtime_check done; refined, state_machine, theorem pending)
+- [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate) (tpt-proof-macros: requires, ensures, runtime_check done, with doc markers for the translator and a `tpt_proof_verify` cfg split; refined, state_machine, theorem pending)
 
 ## Phase 1: Kernel foundation
 

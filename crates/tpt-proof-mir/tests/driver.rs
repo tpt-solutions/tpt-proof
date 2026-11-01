@@ -98,3 +98,14 @@ fn a_contract_outside_the_language_is_reported_not_ignored() {
         "{line}"
     );
 }
+
+#[test]
+fn macro_expanded_contracts_are_verified_through_the_cfg_split() {
+    let report = verdicts_for("contract_expanded.rs");
+    let ensures = lines_for(&report, "plus100_loose")
+        .into_iter()
+        .find(|line| line.contains("ensures"))
+        .unwrap_or_else(|| panic!("no ensures line in:\n{report}"));
+    assert!(ensures.contains("counterexample"), "{ensures}");
+    assert!(!report.contains("unsupported"), "{report}");
+}

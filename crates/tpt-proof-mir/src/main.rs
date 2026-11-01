@@ -66,6 +66,7 @@ fn main() {
         "rustc".to_string(),
         "--edition=2021".to_string(),
         "--crate-type=lib".to_string(),
+        "--cfg=tpt_proof_verify".to_string(),
     ];
     compiler_args.extend(args[1..].iter().cloned());
     rustc_driver::compiler_entrypoint(&compiler_args, &mut Verify);
