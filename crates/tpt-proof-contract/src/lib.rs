@@ -12,6 +12,7 @@
 
 pub mod smt;
 pub mod vc;
+pub mod wp;
 
 pub use smt::{check, encode, SolverConfig};
 pub use vc::{Expr, Sort, Vc};
