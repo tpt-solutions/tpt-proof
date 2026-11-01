@@ -24,7 +24,7 @@ use rustc_attr_ir::{Attribute, AttributeKind};
 use rustc_hir::def_id::DefId;
 use rustc_index::Idx;
 use rustc_middle::mir::{
-    BasicBlock, BinOp, Body, Local, Operand, Place, PlaceElem, Rvalue, StatementKind,
+    BasicBlock, BinOp, Body, BorrowKind, Local, Operand, Place, PlaceElem, Rvalue, StatementKind,
     TerminatorKind, VarDebugInfoContents,
 };
 use rustc_middle::ty::{self, IntTy, Ty, TyCtxt, TypingEnv, UintTy};
@@ -602,6 +602,14 @@ impl<'tcx> Translator<'_, 'tcx> {
                 }
                 Ok(())
             }
+            Rvalue::Ref(_, BorrowKind::Shared, borrowed) => {
+                // A shared borrow of a scalar place has that place's value: rustc
+                // guarantees the place is not changed while the borrow is live.
+                let value = self.place(borrowed, state)?;
+                state.locals.insert(place.local, value);
+                Ok(())
+            }
+            Rvalue::Ref(..) => unsupported("mutable borrows are not supported"),
             _ => unsupported("unsupported right-hand side"),
         }
     }
@@ -636,7 +644,9 @@ impl<'tcx> Translator<'_, 'tcx> {
 
     fn place(&self, place: &Place<'tcx>, state: &State) -> Result<Expr, Unsupported> {
         match place.projection.as_slice() {
-            [] => state
+            // A shared reference is represented by its pointee, so reading through it
+            // reads the same value.
+            [] | [PlaceElem::Deref] => state
                 .locals
                 .get(&place.local)
                 .cloned()
@@ -663,6 +673,10 @@ impl<'tcx> Translator<'_, 'tcx> {
         let local_ty = self.body.local_decls[place.local].ty;
         match place.projection.as_slice() {
             [] => Ok(local_ty),
+            [PlaceElem::Deref] => match local_ty.kind() {
+                ty::Ref(_, pointee, _) => Ok(*pointee),
+                _ => unsupported("dereference of a non-reference"),
+            },
             [PlaceElem::Field(field, _)] => match local_ty.kind() {
                 ty::Tuple(fields) => Ok(fields[field.index()]),
                 _ => unsupported("field of a non-tuple"),
@@ -810,7 +824,19 @@ fn param_names(body: &Body<'_>, values: &[Expr]) -> Vec<(String, Expr)> {
     names
 }
 
+/// Strips shared references. A `&T` has the value model of `T`, which is sound because
+/// rustc's borrow checker rules out changes to a shared borrow's pointee. Mutable
+/// references are not supported.
+fn peel_shared<'tcx>(ty: Ty<'tcx>) -> Result<Ty<'tcx>, Unsupported> {
+    match ty.kind() {
+        ty::Ref(_, pointee, mutability) if !mutability.is_mut() => peel_shared(*pointee),
+        ty::Ref(..) => unsupported("mutable references are not supported"),
+        _ => Ok(ty),
+    }
+}
+
 fn sort_of(ty: Ty<'_>) -> Result<Sort, Unsupported> {
+    let ty = peel_shared(ty)?;
     if ty.is_bool() {
         Ok(Sort::Bool)
     } else if int_range(ty)?.is_some() {
@@ -820,8 +846,10 @@ fn sort_of(ty: Ty<'_>) -> Result<Sort, Unsupported> {
     }
 }
 
-/// The inclusive range of an integer type, or `None` for other types.
+/// The inclusive range of an integer type, or `None` for other types. A shared
+/// reference has the range of its pointee.
 fn int_range(ty: Ty<'_>) -> Result<Option<(i128, i128)>, Unsupported> {
+    let ty = peel_shared(ty)?;
     let range = match ty.kind() {
         ty::Uint(kind) => {
             let bits = match kind {

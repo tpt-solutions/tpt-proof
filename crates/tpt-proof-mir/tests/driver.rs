@@ -262,3 +262,42 @@ fn signed_division_checks_zero_and_the_minimum_over_minus_one() {
         "{report}"
     );
 }
+
+#[test]
+fn overflow_through_a_shared_reference_gets_a_counterexample() {
+    let report = verdicts_for("ref_overflow.rs");
+    let line = line_for(&report, "bump_ref");
+    assert!(line.contains("counterexample"), "{line}");
+}
+
+#[test]
+fn a_postcondition_through_a_shared_reference_is_proved() {
+    let report = verdicts_for("ref_ensures.rs");
+    let lines = lines_for(&report, "bump_checked");
+    assert!(lines.len() >= 2, "{report}");
+    assert!(lines.iter().all(|line| line.contains("proved")), "{report}");
+}
+
+#[test]
+fn a_borrow_of_a_local_reads_its_value() {
+    let report = verdicts_for("ref_borrow.rs");
+    let line = line_for(&report, "read_back");
+    assert!(line.contains("proved"), "{line}");
+}
+
+#[test]
+fn mutable_references_are_reported_as_unsupported() {
+    let report = verdicts_for("mut_ref_unsupported.rs");
+    let line = line_for(&report, "set");
+    assert!(
+        line.contains("unsupported") && line.contains("mutable"),
+        "{line}"
+    );
+}
+
+#[test]
+fn cell_references_are_reported_as_unsupported() {
+    let report = verdicts_for("cell_unsupported.rs");
+    let line = line_for(&report, "get");
+    assert!(line.contains("unsupported"), "{line}");
+}
