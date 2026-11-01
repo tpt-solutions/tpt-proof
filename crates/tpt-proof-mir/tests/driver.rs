@@ -185,10 +185,13 @@ fn a_guarded_division_is_proved_and_its_result_is_bounded() {
 }
 
 #[test]
-fn signed_remainder_is_reported_as_unsupported() {
+fn signed_remainder_is_translated_and_its_assertions_proved() {
     let report = verdicts_for("rem_signed.rs");
     let line = line_for(&report, "remainder");
-    assert!(line.contains("unsupported"), "{line}");
+    assert!(
+        !line.contains("unsupported") && line.contains("proved"),
+        "{line}"
+    );
 }
 
 #[test]
@@ -221,4 +224,41 @@ fn an_uncontracted_callee_gives_an_unknown_result() {
         .find(|line| line.contains("ensures"))
         .unwrap_or_else(|| panic!("no ensures line in:\n{report}"));
     assert!(line.contains("counterexample"), "{line}");
+}
+
+#[test]
+fn signed_division_and_remainder_truncate_toward_zero() {
+    let report = verdicts_for("signed_semantics.rs");
+    let division = lines_for(&report, "div_case");
+    let remainder = lines_for(&report, "rem_case");
+    assert!(!division.is_empty() && !remainder.is_empty(), "{report}");
+    assert!(
+        division
+            .iter()
+            .chain(&remainder)
+            .all(|line| line.contains("proved")),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_euclidean_claim_for_signed_division_is_refuted() {
+    let report = verdicts_for("signed_euclid_wrong.rs");
+    assert!(
+        lines_for(&report, "div_euclid_claim")
+            .iter()
+            .any(|line| line.contains("ensures") && line.contains("counterexample")),
+        "{report}"
+    );
+}
+
+#[test]
+fn signed_division_checks_zero_and_the_minimum_over_minus_one() {
+    let report = verdicts_for("signed_overflow.rs");
+    let lines = lines_for(&report, "divide");
+    assert!(lines.len() >= 2, "{report}");
+    assert!(
+        lines.iter().all(|line| line.contains("counterexample")),
+        "{report}"
+    );
 }

@@ -35,6 +35,8 @@ pub enum Expr {
     Div(Box<Expr>, Box<Expr>),
     /// Integer remainder, for non-negative operands. See [`Expr::Div`].
     Rem(Box<Expr>, Box<Expr>),
+    /// A conditional: `if cond then a else b`. Both branches have the same sort.
+    Ite(Box<Expr>, Box<Expr>, Box<Expr>),
     /// Integer less-than.
     Lt(Box<Expr>, Box<Expr>),
     /// Integer less-than-or-equal.

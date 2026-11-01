@@ -563,13 +563,20 @@ impl<'tcx> Translator<'_, 'tcx> {
                         state.fields.insert((place.local, 1), overflowed);
                     }
                     BinOp::Div | BinOp::Rem => {
-                        if !matches!(lhs_ty.kind(), ty::Uint(_)) {
-                            return unsupported("signed division and remainder are not supported");
-                        }
-                        let value = if matches!(op, BinOp::Div) {
-                            Expr::Div(Box::new(a), Box::new(b))
-                        } else {
-                            Expr::Rem(Box::new(a), Box::new(b))
+                        let value = match (op, lhs_ty.kind()) {
+                            (BinOp::Div, ty::Uint(_)) => Expr::Div(Box::new(a), Box::new(b)),
+                            (BinOp::Rem, ty::Uint(_)) => Expr::Rem(Box::new(a), Box::new(b)),
+                            (BinOp::Div, ty::Int(_)) => signed_div(a, b),
+                            (BinOp::Rem, ty::Int(_)) => signed_rem(a, b),
+                            _ => return unsupported("division on this type is not supported"),
+                        };
+                        state.locals.insert(place.local, value);
+                    }
+                    BinOp::BitAnd | BinOp::BitOr | BinOp::BitXor if lhs_ty.is_bool() => {
+                        let value = match op {
+                            BinOp::BitAnd => and(a, b),
+                            BinOp::BitOr => Expr::Or(vec![a, b]),
+                            _ => not(eq(a, b)),
                         };
                         state.locals.insert(place.local, value);
                     }
@@ -923,4 +930,46 @@ fn instantiate(
     let mut all = borrow_names(names);
     all.extend(extra.iter().cloned());
     spec::parse(text, &all).map_err(|err| err.to_string())
+}
+
+fn ite(condition: Expr, then: Expr, otherwise: Expr) -> Expr {
+    Expr::Ite(Box::new(condition), Box::new(then), Box::new(otherwise))
+}
+
+fn neg(a: Expr) -> Expr {
+    sub(Expr::Int(0), a)
+}
+
+fn and(a: Expr, b: Expr) -> Expr {
+    Expr::And(vec![a, b])
+}
+
+/// Rust's `a / b` for signed integers, which rounds toward zero. The solver's `div`
+/// rounds differently for negative operands, so each sign case uses it only on
+/// non-negative operands, where the two agree.
+fn signed_div(a: Expr, b: Expr) -> Expr {
+    let non_negative_divisor = lt(Expr::Int(0), b.clone());
+    ite(
+        le(Expr::Int(0), a.clone()),
+        ite(
+            non_negative_divisor.clone(),
+            Expr::Div(Box::new(a.clone()), Box::new(b.clone())),
+            neg(Expr::Div(Box::new(a.clone()), Box::new(neg(b.clone())))),
+        ),
+        ite(
+            non_negative_divisor,
+            neg(Expr::Div(Box::new(neg(a.clone())), Box::new(b.clone()))),
+            Expr::Div(Box::new(neg(a)), Box::new(neg(b))),
+        ),
+    )
+}
+
+/// Rust's `a % b` for signed integers: the remainder takes the sign of the dividend.
+fn signed_rem(a: Expr, b: Expr) -> Expr {
+    let magnitude = ite(le(Expr::Int(0), b.clone()), b.clone(), neg(b));
+    ite(
+        le(Expr::Int(0), a.clone()),
+        Expr::Rem(Box::new(a.clone()), Box::new(magnitude.clone())),
+        neg(Expr::Rem(Box::new(neg(a)), Box::new(magnitude))),
+    )
 }

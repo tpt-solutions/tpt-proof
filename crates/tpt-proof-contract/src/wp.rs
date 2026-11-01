@@ -284,6 +284,7 @@ fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
         Expr::Mul(a, b) => Expr::Mul(boxed(a), boxed(b)),
         Expr::Div(a, b) => Expr::Div(boxed(a), boxed(b)),
         Expr::Rem(a, b) => Expr::Rem(boxed(a), boxed(b)),
+        Expr::Ite(c, a, b) => Expr::Ite(boxed(c), boxed(a), boxed(b)),
         Expr::Lt(a, b) => Expr::Lt(boxed(a), boxed(b)),
         Expr::Le(a, b) => Expr::Le(boxed(a), boxed(b)),
         Expr::Eq(a, b) => Expr::Eq(boxed(a), boxed(b)),

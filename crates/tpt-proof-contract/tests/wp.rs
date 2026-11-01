@@ -42,6 +42,13 @@ fn eval(expr: &Expr, env: &BTreeMap<String, Val>) -> Val {
         Expr::Mul(a, b) => Val::Int(int(eval(a, env)) * int(eval(b, env))),
         Expr::Div(a, b) => Val::Int(int(eval(a, env)) / int(eval(b, env))),
         Expr::Rem(a, b) => Val::Int(int(eval(a, env)) % int(eval(b, env))),
+        Expr::Ite(c, a, b) => {
+            if boolean(eval(c, env)) {
+                eval(a, env)
+            } else {
+                eval(b, env)
+            }
+        }
         Expr::Lt(a, b) => Val::Bool(int(eval(a, env)) < int(eval(b, env))),
         Expr::Le(a, b) => Val::Bool(int(eval(a, env)) <= int(eval(b, env))),
         Expr::Eq(a, b) => Val::Bool(eval(a, env) == eval(b, env)),

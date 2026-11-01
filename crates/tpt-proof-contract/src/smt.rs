@@ -91,6 +91,7 @@ fn render(expr: &Expr) -> String {
         Expr::Mul(a, b) => binary("*", a, b),
         Expr::Div(a, b) => binary("div", a, b),
         Expr::Rem(a, b) => binary("mod", a, b),
+        Expr::Ite(c, a, b) => format!("(ite {} {} {})", render(c), render(a), render(b)),
         Expr::Lt(a, b) => binary("<", a, b),
         Expr::Le(a, b) => binary("<=", a, b),
         Expr::Eq(a, b) => binary("=", a, b),
@@ -129,6 +130,12 @@ fn sort_of(expr: &Expr, env: &[(&str, Sort)]) -> Result<Sort, EncodeError> {
         Expr::Int(_) => Ok(Sort::Int),
         Expr::Bool(_) => Ok(Sort::Bool),
         Expr::Var(name) => lookup(name),
+        Expr::Ite(c, a, b) => {
+            expect_sort(c, Sort::Bool, env)?;
+            let sort = sort_of(a, env)?;
+            expect_sort(b, sort, env)?;
+            Ok(sort)
+        }
         Expr::Add(a, b) | Expr::Sub(a, b) | Expr::Mul(a, b) | Expr::Div(a, b) | Expr::Rem(a, b) => {
             expect_sort(a, Sort::Int, env)?;
             expect_sort(b, Sort::Int, env)?;
