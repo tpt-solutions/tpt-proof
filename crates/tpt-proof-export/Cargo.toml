@@ -1,0 +1,15 @@
+[package]
+name = "tpt-proof-export"
+description = "Exports kernel theorems and their proof terms to Lean 4 for independent checking."
+version.workspace = true
+edition.workspace = true
+rust-version.workspace = true
+license.workspace = true
+authors.workspace = true
+publish.workspace = true
+
+[dependencies]
+tpt-proof-kernel = { version = "0.0.1", path = "../tpt-proof-kernel" }
+
+[lints]
+workspace = true

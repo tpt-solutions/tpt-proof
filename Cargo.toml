@@ -1,6 +1,6 @@
 [workspace]
 resolver = "2"
-exclude = ["crates/tpt-proof-mir"]
+exclude = ["crates/tpt-proof-mir", "examples/filesystem"]
 members = [
     "crates/tpt-proof-kernel",
     "crates/tpt-proof-core",
@@ -9,6 +9,7 @@ members = [
     "crates/tpt-proof-runtime",
     "crates/tpt-proof-macros",
     "crates/tpt-proof-cli",
+    "crates/tpt-proof-export",
 ]
 
 [workspace.package]

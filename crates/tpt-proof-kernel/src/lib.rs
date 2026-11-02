@@ -715,6 +715,44 @@ impl Kernel {
         self.theorems.get(name)
     }
 
+    /// Every declared axiom, including assumptions, in name order.
+    pub fn axioms(&self) -> impl Iterator<Item = &Axiom> {
+        self.axioms.values()
+    }
+
+    /// Every checked theorem, with its name, in name order.
+    pub fn theorems(&self) -> impl Iterator<Item = (&str, &Theorem)> {
+        self.theorems
+            .iter()
+            .map(|(name, theorem)| (name.as_str(), theorem))
+    }
+
+    /// Every declared sort, in name order.
+    pub fn sorts(&self) -> impl Iterator<Item = &str> {
+        self.sorts.iter().map(String::as_str)
+    }
+
+    /// The argument and result sorts of a declared function symbol.
+    pub fn function_signature(&self, symbol: &str) -> Option<(&[Sort], &Sort)> {
+        self.functions
+            .get(symbol)
+            .map(|signature| (signature.args.as_slice(), &signature.result))
+    }
+
+    /// Every declared function symbol with its argument and result sorts.
+    pub fn functions(&self) -> impl Iterator<Item = (&str, &[Sort], &Sort)> {
+        self.functions
+            .iter()
+            .map(|(name, signature)| (name.as_str(), signature.args.as_slice(), &signature.result))
+    }
+
+    /// Every declared predicate symbol with its argument sorts.
+    pub fn predicates(&self) -> impl Iterator<Item = (&str, &[Sort])> {
+        self.predicates
+            .iter()
+            .map(|(name, args)| (name.as_str(), args.as_slice()))
+    }
+
     fn ensure_fresh(&self, name: &str) -> Result<()> {
         if self.axioms.contains_key(name) || self.theorems.contains_key(name) {
             Err(KernelError::DuplicateName(name.to_string()))
