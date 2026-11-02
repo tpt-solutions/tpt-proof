@@ -23,7 +23,7 @@
 //! ```
 
 use proc_macro::TokenStream;
-use proc_macro2::TokenStream as TokenStream2;
+use proc_macro2::{Spacing, TokenStream as TokenStream2, TokenTree};
 use quote::{format_ident, quote, ToTokens};
 use syn::parse::{Parse, ParseStream, Parser};
 use syn::punctuated::Punctuated;
@@ -69,6 +69,11 @@ impl Parse for InvariantArgs {
 }
 
 fn expand_invariant(args: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> {
+    // The line number comes first, so only the condition after its comma may use `==>`.
+    let head = punct_positions(&args, ',')
+        .first()
+        .map_or(0, |comma| comma + 1);
+    let args = desugar_after(args, head);
     let args: InvariantArgs = parse2(args)?;
     let mut function: ItemFn = parse2(item)?;
     let line: u32 = args.line.base10_parse()?;
@@ -350,6 +355,55 @@ fn field_name(expr: &Expr) -> syn::Result<Ident> {
     }
 }
 
+/// Rewrites `a ==> b` to `!(a) || (b)`. The implication operator binds loosest
+/// and is right-associative, so `a ==> b ==> c` is `a ==> (b ==> c)`. Groups are
+/// atomic, so only top-level occurrences are split.
+fn desugar_implies(tokens: TokenStream2) -> TokenStream2 {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    match (0..trees.len()).find(|&i| is_implies_at(&trees, i)) {
+        None => trees.into_iter().collect(),
+        Some(arrow) => {
+            let lhs: TokenStream2 = trees[..arrow].iter().cloned().collect();
+            let rhs = desugar_implies(trees[arrow + 3..].iter().cloned().collect());
+            quote!(!(#lhs) || (#rhs))
+        }
+    }
+}
+
+/// Whether `==>` starts at `index`. Rust lexes it as three joined puncts.
+fn is_implies_at(trees: &[TokenTree], index: usize) -> bool {
+    match trees.get(index..index + 3) {
+        Some([TokenTree::Punct(a), TokenTree::Punct(b), TokenTree::Punct(c)]) => {
+            a.as_char() == '='
+                && b.as_char() == '='
+                && c.as_char() == '>'
+                && a.spacing() == Spacing::Joint
+                && b.spacing() == Spacing::Joint
+        }
+        _ => false,
+    }
+}
+
+/// Applies [`desugar_implies`] to the tokens after the first `head` token trees.
+fn desugar_after(tokens: TokenStream2, head: usize) -> TokenStream2 {
+    let trees: Vec<TokenTree> = tokens.into_iter().collect();
+    let head = head.min(trees.len());
+    let head_tokens: TokenStream2 = trees[..head].iter().cloned().collect();
+    let tail = desugar_implies(trees[head..].iter().cloned().collect());
+    quote!(#head_tokens #tail)
+}
+
+/// The positions of the top-level punctuation `ch` in `tokens`.
+fn punct_positions(tokens: &TokenStream2, ch: char) -> Vec<usize> {
+    tokens
+        .clone()
+        .into_iter()
+        .enumerate()
+        .filter(|(_, tree)| matches!(tree, TokenTree::Punct(p) if p.as_char() == ch))
+        .map(|(index, _)| index)
+        .collect()
+}
+
 fn into_output(result: syn::Result<TokenStream2>) -> TokenStream {
     match result {
         Ok(tokens) => tokens.into(),
@@ -370,7 +424,7 @@ fn expand_entry(
     label: &str,
     prefix: &str,
 ) -> syn::Result<TokenStream2> {
-    let condition: Expr = parse2(args)?;
+    let condition: Expr = parse2(desugar_implies(args))?;
     let mut function: ItemFn = parse2(item)?;
     let text = condition.to_token_stream().to_string();
     let check: Stmt = parse_quote! {
@@ -385,7 +439,10 @@ fn expand_entry(
 /// Expands `ensures`: a debug check on the result, and a marker. The verification
 /// build gets the body unchanged.
 fn expand_ensures(args: TokenStream2, item: TokenStream2) -> syn::Result<TokenStream2> {
-    let closure: ExprClosure = parse2(args)?;
+    // The binder is `|name|`, so only the body after the second `|` may use `==>`.
+    let bars = punct_positions(&args, '|');
+    let head = bars.get(1).map_or(0, |second| second + 1);
+    let closure: ExprClosure = parse2(desugar_after(args, head))?;
     let mut function: ItemFn = parse2(item)?;
 
     let binder = match closure.inputs.first() {
@@ -559,5 +616,70 @@ mod tests {
             function("fn f(x: i32) -> i32 { x }"),
         );
         assert!(error.is_err());
+    }
+}
+
+#[cfg(test)]
+mod implication_tests {
+    use super::*;
+
+    fn desugared(source: &str) -> String {
+        desugar_implies(source.parse().expect("tokens")).to_string()
+    }
+
+    #[test]
+    fn implication_becomes_not_or() {
+        assert_eq!(desugared("a ==> b"), "! (a) || (b)");
+    }
+
+    #[test]
+    fn implication_is_right_associative() {
+        assert_eq!(desugared("a ==> b ==> c"), "! (a) || (! (b) || (c))");
+    }
+
+    #[test]
+    fn implication_binds_looser_than_connectives() {
+        assert_eq!(
+            desugared("x > 0 && y ==> z || w"),
+            "! (x > 0 && y) || (z || w)"
+        );
+    }
+
+    #[test]
+    fn text_without_an_arrow_is_unchanged() {
+        assert_eq!(desugared("x >= 0 && y != 1"), "x >= 0 && y != 1");
+    }
+
+    #[test]
+    fn groups_hide_their_arrows() {
+        assert_eq!(desugared("f(a ==> b)"), "f (a ==> b)");
+    }
+
+    #[test]
+    fn invariant_skips_the_line_number() {
+        let expanded = expand_invariant(
+            "4, i <= n ==> total == i".parse().expect("tokens"),
+            "fn sum(n: u32) -> u32 { n }".parse().expect("tokens"),
+        )
+        .expect("expands")
+        .to_string();
+        assert!(expanded.contains("tpt-proof-invariant"), "{expanded}");
+        assert!(expanded.contains("! (i <= n)"), "{expanded}");
+    }
+
+    #[test]
+    fn ensures_desugars_only_the_body() {
+        let expanded = expand_ensures(
+            "|result| *result >= 0 ==> *result < 10"
+                .parse()
+                .expect("tokens"),
+            "fn f(x: i32) -> i32 { x }".parse().expect("tokens"),
+        )
+        .expect("expands")
+        .to_string();
+        assert!(
+            expanded.contains("! (* result >= 0) || (* result < 10)"),
+            "{expanded}"
+        );
     }
 }

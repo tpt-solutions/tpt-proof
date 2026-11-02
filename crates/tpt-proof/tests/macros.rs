@@ -92,3 +92,23 @@ fn failing_runtime_check_on_a_method_panics_in_debug() {
     let mut counter = Counter { n: 10 };
     counter.bump();
 }
+
+/// `a ==> b` holds when `a` is false or `b` is true.
+#[requires(n == 0 ==> total == 0)]
+#[ensures(|result| *result > 100 ==> *result == total)]
+fn tally(n: u32, total: u32) -> u32 {
+    total
+}
+
+#[test]
+fn implication_contracts_hold_on_both_sides() {
+    assert_eq!(tally(0, 0), 0);
+    assert_eq!(tally(3, 7), 7);
+}
+
+#[cfg(debug_assertions)]
+#[test]
+#[should_panic(expected = "precondition failed")]
+fn failing_implication_precondition_panics_in_debug() {
+    tally(0, 1);
+}
