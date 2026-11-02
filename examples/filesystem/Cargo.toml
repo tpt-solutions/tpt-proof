@@ -1,0 +1,19 @@
+[package]
+name = "tpt-proof-example-filesystem"
+description = "Layer 1 types for tpt-filesystem, built on tpt-proof (TODO.md, phase 7)."
+version = "0.0.1"
+edition = "2021"
+license = "MIT OR Apache-2.0"
+publish = false
+
+# A standalone workspace. tpt-filesystem's dependencies are not part of tpt-proof's
+# license audit (deny.toml), so this example is kept out of the root workspace.
+[workspace]
+
+[dependencies]
+tpt-proof = { path = "../../crates/tpt-proof" }
+# Pinned to the tpt-filesystem commit that tpt-filesystem itself pins to. Bump it deliberately.
+tpt-filesystem-core = { git = "https://github.com/tpt-solutions/tpt-filesystem", rev = "cfbb1aa895fe08204bd247cb3c33850f77a60198" }
+
+[lints.rust]
+unexpected_cfgs = { level = "warn", check-cfg = ["cfg(tpt_proof_verify)"] }
