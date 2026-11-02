@@ -20,10 +20,9 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Still needs you (can't be decided by me)
 
-- [ ] GitHub org/repo name (e.g. `TPT-Solutions/tpt-proof`?)
+- [x] GitHub repo: `tpt-solutions/tpt-proof`
 - [ ] Reserve crate names on crates.io (`tpt-proof`, `tpt-proof-kernel`, ...)
 - [ ] `CODEOWNERS`; name at least one second reviewer for kernel and axiom changes
-- [ ] Security contact email for `SECURITY.md`
 
 ## Phase 0: Repo foundation
 
@@ -35,7 +34,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `rust-toolchain.toml` pinning nightly + components (`rustc-dev`, `llvm-tools`) (stable for now; the nightly pin lands with `tpt-proof-mir` in Phase 3)
 - [x] `rustfmt.toml`, `clippy` config, `deny.toml` (cargo-deny: licenses must be MIT/Apache-2.0 compatible)
 - [x] CI (GitHub Actions): build, test, fmt, clippy, cargo-deny, kernel line-count check (<5,000 LOC)
-- [x] `CONTRIBUTING.md`, `CODE_OF_CONDUCT.md`, `SECURITY.md` (soundness bug reporting policy)
+- [x] `CONTRIBUTING.md` (issues only; no outside pull requests), `CODE_OF_CONDUCT.md`. `SECURITY.md` removed at maintainer request.
 - [x] Per-crate `Cargo.toml` stubs for the crates listed below
 - [x] `docs/` skeleton (mdBook or similar)
 
@@ -48,7 +47,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `tpt-proof-runtime` (Layer 4)
 - [x] `tpt-proof-mir` (MIR analysis, translation)
 - [x] `tpt-proof-cli`
-- [ ] `stdlib/{collections,sync,io}`, `examples/filesystem`, `proofs/kernel_soundness`
+- [ ] `stdlib/{collections,sync,io}`, `proofs/kernel_soundness` (directories and READMEs scaffolded; contents pending in phases 6-8). `examples/filesystem` now has code (phase 7).
 - [ ] Proc-macro crate(s) for `#[refined]`, `#[requires]`, `#[theorem]`, etc. (proc macros must live in their own crate) (tpt-proof-macros: requires, ensures, runtime_check, refined, and state_machine done, with doc markers for the translator and a `tpt_proof_verify` cfg split; theorem pending)
 
 ## Phase 1: Kernel foundation
@@ -65,7 +64,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] Trusted axioms (`axioms.rs`): logical, equality, bounded arithmetic
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem
-- [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (partial: declare_axiom, declare_theorem, check_proof, assume done; declare_inductive and define_function pending)
+- [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (partial: declare_axiom, declare_theorem, check_proof, assume, declare_inductive done; define_function pending, with `define_by_recursion` covering its structural case)
 - [x] Unit tests, property-based tests, and negative tests (bogus proofs must be rejected)
 - [x] Enforce <5,000 LOC and zero deps in CI
 - [x] `AUDIT.md` (scope, reviewers, status)
@@ -85,7 +84,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 3: Layer 2, contracts
 
-- [ ] Contract macros: `#[requires]`, `#[ensures]`, `#[invariant]`, `#[assert]`, `==>` operator (requires and ensures done as debug checks; invariant, assert, and ==> pending)
+- [ ] Contract macros: `#[requires]`, `#[ensures]`, `#[invariant]`, `#[assert]`, `==>` operator (requires, ensures, invariant, and `==>` done; `==>` is rewritten to `!(a) || (b)` before parsing; `#[assert]` pending: a statement-level check needs a statement macro, since attributes on statements are limited on stable)
 - [x] Research spike: Z3 proof-reconstruction strategy (docs/spike-proof-reconstruction.md: Z3 emits proof objects; arithmetic steps are the hard part; no checker yet)
 - [ ] MIR extraction (`tpt-proof-mir`): desugar, monomorphize, resolve ownership (done for integer and bool functions with straight-line code, `if`, and asserts: MIR asserts become VCs checked by Z3, and each unsupported construct is reported. Contracts `requires` and `ensures` are read from doc markers and checked; loops with line-anchored `#[invariant(line, cond)]` are checked with the entry, havoc, and preservation rule; generic calls and mutable references are pending; shared references to scalars are supported (a reference is modelled by its pointee, sound by rustc's borrow check); signed division and remainder use Rust truncation, checked against concrete values; direct calls use callee contracts as summaries, which are assumed on the callee's own verification; unsigned division and remainder, and multiplication with overflow checks, are supported)
 - [x] Verifiable subset enforcement: unsupported constructs are reported by name, never verified (integer and bool subset only; see the MIR crate)
@@ -104,15 +103,16 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] DSL macros: `#[theorem]`, `#[lemma]`, `arbitrary()`, `assume()`, `show()`, `by {}` (not started: needs the proc-macro crate; tactics are the Rust API for now)
 - [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact done; case_split, induct, simplify pending)
 - [x] Each tactic step emits a proof term that the kernel checks
-- [ ] Interactive mode: goal display and suggested next steps (Goal Display done; suggested next steps pending)
-- [ ] Lemma library and theorem dependency/axiom reports (declare_theorem done; a shared lemma library is pending)
+- [x] Interactive mode: goal display and suggested next steps (`Proof::suggestions` lists the tactics that apply to the focused goal: intro, intro_forall, assumption, apply_hyp/axiom/theorem; advice only)
+- [x] Dependency/axiom reports (`tpt_proof::report::dependency_report`: each theorem, its axioms, and their justifications)
+- [ ] Lemma library: a shared store of checked lemmas that other kernels can load (not started; needs a serialization format for proof terms)
 - [x] **Milestone: write and check interactive proofs** (via the tactics API)
 
 ## Phase 5: Layer 4, runtime verification
 
 - [x] `#[runtime_check]` and spec-to-assertion compilation (debug builds only, zero release cost) (runtime_check! macro done; attribute form needs a proc-macro crate) (attribute form done via tpt-proof-macros; spec.txt example semantics)
-- [ ] proptest/quickcheck integration
-- [ ] Counterexample replay for failed static proofs
+- [x] proptest integration: `tpt_proof_runtime::property::check` behind the `proptest` feature (quickcheck not added)
+- [x] Counterexample replay: `tpt_proof_runtime::replay::run` calls a function under solver-chosen inputs and reports `Confirmed` (a contract failed), `Panicked` or `Passed`. Replay in release builds reports `Passed`, because contracts are debug assertions.
 - [ ] **Milestone: debug verification failures at runtime**
 
 ## Phase 6: Standard library
@@ -126,8 +126,8 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 
 ## Phase 7: Filesystem integration
 
-- [ ] Wire up `examples/filesystem` against `tpt-filesystem` (https://github.com/tpt-solutions/tpt-filesystem is empty at the time of checking; integration waits on its code)
-- [ ] Layer 1 types: block indices, sizes
+- [x] Wire up `examples/filesystem` against `tpt-filesystem`: a standalone crate pinned to tpt-filesystem commit `cfbb1aa`, kept out of the root workspace so its dependencies stay out of the license audit
+- [x] Layer 1 types: `BlockRef` (`#[refined(block < total)]`) for block indices, and `Blocks`/`Bytes` for sizes, in `examples/filesystem`
 - [ ] Layer 2 contracts on most functions
 - [ ] Layer 3 proofs: B-Tree balance, CoW atomicity, transaction isolation
 - [ ] **Milestone: filesystem has genuine mathematical guarantees**
@@ -135,7 +135,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Phase 8: Self-verification
 
 - [ ] Verify parts of the translation layer with tpt-proof
-- [ ] Export proofs to Lean 4 / Coq for independent checking
+- [x] Export proofs to Lean 4 for independent checking: `tpt-proof-export` writes the kernel's environment and each lemma's proof term as Lean; `lean` accepts the five test lemmas (`cargo test -p tpt-proof-export -- --ignored`, needs `lean` on PATH). Coq not started. Inductive types are exported as uninterpreted symbols plus their induction axioms, not as Lean `inductive`s.
 - [ ] `proofs/kernel_soundness`
 - [ ] **Milestone: framework self-verified to the extent possible**
 
@@ -148,6 +148,6 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Ongoing
 
 - [ ] Fuzzing and differential testing against Kani/Creusot
-- [ ] Benchmarks (target: seconds for most verification) (kernel benchmark in docs/benchmarks.md; Z3 and end-to-end timings pending)
+- [ ] Benchmarks (target: seconds for most verification) (kernel and contract-level Z3 timings in docs/benchmarks.md; translator-fixture and end-to-end timings pending)
 - [ ] User docs, tutorials, error-message quality
 - [ ] Success-criteria review (spec section 14)
