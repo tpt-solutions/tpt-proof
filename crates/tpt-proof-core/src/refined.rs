@@ -46,4 +46,33 @@ impl<const N: usize> Index<N> {
     pub const fn get(self) -> usize {
         self.0
     }
+
+    /// The bound `N`: every value of this type is below it.
+    pub const fn bound() -> usize {
+        N
+    }
+
+    /// Re-checks the same value against a larger bound `M`. Panics, and so
+    /// fails to compile in a constant, if `M < N`, because a value below `N`
+    /// is not known to be below a smaller bound.
+    ///
+    /// ```
+    /// use tpt_proof_core::refined::Index;
+    ///
+    /// const WIDE: Index<16> = Index::<4>::new_const(3).widen::<16>();
+    /// assert_eq!(WIDE.get(), 3);
+    /// assert_eq!(Index::<16>::bound(), 16);
+    /// ```
+    ///
+    /// Widening to a smaller bound does not compile in a constant:
+    ///
+    /// ```compile_fail
+    /// use tpt_proof_core::refined::Index;
+    ///
+    /// const NARROW: Index<4> = Index::<8>::new_const(3).widen::<4>();
+    /// ```
+    pub const fn widen<const M: usize>(self) -> Index<M> {
+        assert!(N <= M, "widening to a smaller bound");
+        Index(self.0)
+    }
 }
