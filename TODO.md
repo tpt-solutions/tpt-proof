@@ -16,13 +16,13 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] Z3 proof reconstruction: Z3 only *finds* certificates and its verdict is never trusted. Start with a narrow fragment (QF_LIA and QF_UF) and check certificates (e.g. Farkas coefficients) with kernel-checked rules. Anything not reconstructible is reported as `Failed`, never accepted. Research spike at the start of Phase 3 confirms feasibility.
 - [x] Toolchain: pin one specific nightly date in `rust-toolchain.toml` at Phase 0 and bump deliberately. The kernel and non-MIR crates must also build on **stable** (MSRV = latest stable minus 2 releases; decide the exact number at Phase 0).
 - [x] Integers: model `usize`/`u64` etc. as **bounded naturals with explicit modular ops**. Plain `+`/`-`/`*` generate overflow VCs (prove no overflow); `wrapping_*`/`checked_*` map to their own operations.
-- [x] Rust-semantics axioms: **minimal, safe-subset only**. Each axiom lives in `axioms.rs` with a doc comment (statement, justification, reference to Rust reference/Miri/RustBelt). Adding one requires a dedicated PR plus a second reviewer, and is recorded in `AUDIT.md`.
+- [x] Rust-semantics axioms: **minimal, safe-subset only**. Each axiom lives in `axioms.rs` with a doc comment (statement, justification, reference to Rust reference/Miri/RustBelt). Adding one requires a dedicated PR and is recorded in `AUDIT.md`.
 
 ## Still needs you (can't be decided by me)
 
 - [x] GitHub repo: `tpt-solutions/tpt-proof`
 - [ ] Reserve crate names on crates.io (`tpt-proof`, `tpt-proof-kernel`, ...)
-- [ ] `CODEOWNERS`; name at least one second reviewer for kernel and axiom changes
+- [x] Second reviewer for kernel and axiom changes: requirement removed by maintainer decision. No CODEOWNERS file planned.
 
 ## Phase 0: Repo foundation
 

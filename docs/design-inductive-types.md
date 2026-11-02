@@ -46,7 +46,7 @@ Equality rules from the existing kernel already let us use the reduction equatio
 
 - Kernel additions: ~400–600 lines, which fits the <5,000 LOC budget.
 - Tests: positivity rejections, recursor typing, reduction on concrete values, and property tests over generated constructor trees.
-- Audit: the new code is inside the TCB, so it needs the second-reviewer step in `kernel/AUDIT.md`.
+- Audit: the new code is inside the TCB, so it needs an entry in `kernel/AUDIT.md`.
 
 ## Revision after approval: a missing dependency
 

@@ -23,7 +23,7 @@ The checker recurses once per level of proof nesting. On the default main-thread
 
 The benchmark now checks on a thread with a 256 MB stack, which runs the depth-1,000 proofs. The kernel itself is unchanged.
 
-Callers that check deep proofs should do the same: run `check_proof` on a thread with a large enough stack. An iterative checker would remove the need, but it changes the trusted code, so it needs the second-reviewer step in `kernel/AUDIT.md`. That is the next step if proofs need more depth than a large stack allows.
+Callers that check deep proofs should do the same: run `check_proof` on a thread with a large enough stack. An iterative checker would remove the need, but it changes the trusted code, so it needs an entry in `kernel/AUDIT.md`. That is the next step if proofs need more depth than a large stack allows.
 
 ## Z3 check time
 

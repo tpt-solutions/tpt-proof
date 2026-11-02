@@ -17,7 +17,7 @@ Pull requests are not accepted from outside contributors. Maintainers make all c
 
 ## Ground rules
 
-- **The kernel is the trusted base.** Changes to `crates/tpt-proof-kernel` need a second reviewer and an update to [kernel/AUDIT.md](kernel/AUDIT.md). The kernel must keep zero dependencies and stay under 5,000 lines. CI enforces both.
+- **The kernel is the trusted base.** Changes to `crates/tpt-proof-kernel` need an update to [kernel/AUDIT.md](kernel/AUDIT.md). The kernel must keep zero dependencies and stay under 5,000 lines. CI enforces both.
 - **Axioms expand the TCB.** Adding an axiom requires a justification in its doc comment, a dedicated change, and an entry in `kernel/AUDIT.md`.
 - **Fail loudly.** A verifier must never report "probably correct". Use the explicit result states from spec.txt §2.
 

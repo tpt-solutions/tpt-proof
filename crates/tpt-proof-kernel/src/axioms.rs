@@ -3,7 +3,7 @@
 //! Every axiom is declared with a proposition and a written justification.
 //! The kernel tracks which theorems depend on which axioms (see
 //! [`crate::Theorem::axioms`]). Adding an axiom to the kernel itself requires
-//! a dedicated PR, a second reviewer, and an entry in `kernel/AUDIT.md`.
+//! a dedicated PR and an entry in `kernel/AUDIT.md`.
 //!
 //! The kernel ships with no built-in axioms: implication introduction and
 //! elimination are primitive rules, not axioms.
