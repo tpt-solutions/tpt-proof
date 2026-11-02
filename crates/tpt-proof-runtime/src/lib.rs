@@ -10,6 +10,11 @@
 
 #![forbid(unsafe_code)]
 
+pub mod replay;
+
+#[cfg(feature = "proptest")]
+pub mod property;
+
 /// Checks a condition in debug builds. In release builds it compiles to nothing.
 ///
 /// ```

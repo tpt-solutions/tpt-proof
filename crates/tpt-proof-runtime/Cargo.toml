@@ -10,3 +10,11 @@ publish.workspace = true
 
 [lints]
 workspace = true
+
+[features]
+# Property-based testing with proptest (phase 5). Off by default, so the runtime
+# crate has no dependencies unless a user asks for them.
+proptest = ["dep:proptest"]
+
+[dependencies]
+proptest = { version = "1.6", optional = true }
