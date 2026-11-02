@@ -1,34 +1,26 @@
 # Contributing to tpt-proof
 
-Thanks for your interest. tpt-proof is pre-alpha and the design is in [spec.txt](spec.txt).
+Contributions are made through **GitHub issues only**. Open an issue at
+https://github.com/tpt-solutions/tpt-proof/issues to:
 
-## Before you start
+- report a bug, including a soundness bug (a proof or verification result the tool should not accept);
+- propose a feature or a design change;
+- ask a question about the design in [spec.txt](spec.txt) or the plan in [TODO.md](TODO.md).
 
-- Read [spec.txt](spec.txt) and check [TODO.md](TODO.md) for open work.
-- For anything large, open an issue first so the design can be agreed.
+Pull requests are not accepted from outside contributors. Maintainers make all code changes.
+
+## Writing a useful issue
+
+- Say what you ran, what you expected, and what happened.
+- For a soundness bug, include a minimal reproducing proof term or Rust snippet, the version, and the result the tool gave.
+- For a design change, say why the current design does not work and what you propose instead. Large changes are agreed in the issue before anyone writes code.
 
 ## Ground rules
 
 - **The kernel is the trusted base.** Changes to `crates/tpt-proof-kernel` need a second reviewer and an update to [kernel/AUDIT.md](kernel/AUDIT.md). The kernel must keep zero dependencies and stay under 5,000 lines. CI enforces both.
-- **Axioms expand the TCB.** Adding an axiom requires a justification in its doc comment and a dedicated PR.
+- **Axioms expand the TCB.** Adding an axiom requires a justification in its doc comment, a dedicated change, and an entry in `kernel/AUDIT.md`.
 - **Fail loudly.** A verifier must never report "probably correct". Use the explicit result states from spec.txt §2.
-- Code and comments follow the surrounding style. Keep comments short and about why, not what.
-
-## Checks
-
-Run these before opening a PR:
-
-```bash
-cargo fmt --all
-cargo clippy --workspace --all-targets -- -D warnings
-cargo test --workspace
-cargo deny check
-```
 
 ## Licensing
 
-tpt-proof is dual-licensed under MIT OR Apache-2.0. Unless you say otherwise, any contribution you submit is licensed under the same terms, as described in the Apache-2.0 license. Do not submit code you do not have the right to contribute.
-
-## Commit messages
-
-Use a short imperative subject. Keep the body to the reasoning. Commits that include AI assistance may carry Co-Authored-By trailers.
+tpt-proof is dual-licensed under MIT OR Apache-2.0. Unless you say otherwise, any contribution you intentionally submit for inclusion is licensed under the same terms, as described in the Apache-2.0 license. Do not submit material you do not have the right to contribute.
