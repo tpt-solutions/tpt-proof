@@ -198,6 +198,71 @@ pub(crate) fn infer(
                 Term::app(symbol, rights),
             ))
         }
+
+        ProofTerm::Leibniz(variable, motive, equation, proof) => {
+            let (left, right) = match infer(kernel, ctx, equation, deps)? {
+                Prop::Eq(left, right) => (left, right),
+                other => return Err(KernelError::NotAnEquality(other)),
+            };
+            let sort = kernel.check_term_in(&left, &ctx.individuals)?;
+            let right_sort = kernel.check_term_in(&right, &ctx.individuals)?;
+            if right_sort != sort {
+                return Err(KernelError::SortMismatch {
+                    expected: sort,
+                    found: right_sort,
+                });
+            }
+            ctx.individuals.push((variable.clone(), sort));
+            let checked = kernel.check_prop(motive, &ctx.individuals);
+            ctx.individuals.pop();
+            checked?;
+            let expected = motive.subst_individual(variable, &left);
+            let found = infer(kernel, ctx, proof, deps)?;
+            if !alpha_eq(&found, &expected) {
+                return Err(KernelError::TypeMismatch { expected, found });
+            }
+            Ok(motive.subst_individual(variable, &right))
+        }
+
+        ProofTerm::Cases(variable, sort, motive, cases) => {
+            let constructors = kernel
+                .constructors(sort)
+                .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
+            if cases.len() != constructors.len() {
+                return Err(KernelError::WrongNumberOfCases {
+                    sort: sort.clone(),
+                    expected: constructors.len(),
+                    found: cases.len(),
+                });
+            }
+            ctx.individuals.push((variable.clone(), sort.clone()));
+            let checked = kernel.check_prop(motive, &ctx.individuals);
+            ctx.individuals.pop();
+            checked?;
+            for ((constructor, _), case) in constructors.iter().zip(cases) {
+                let expected = kernel.case_premise(variable, sort, motive, constructor)?;
+                let found = infer(kernel, ctx, case, deps)?;
+                if !alpha_eq(&found, &expected) {
+                    return Err(KernelError::TypeMismatch { expected, found });
+                }
+            }
+            // As for IndLam: a hypothesis or an axiom that mentions the variable
+            // would make the generalized proof depend on one individual.
+            if ctx
+                .props
+                .iter()
+                .any(|(_, prop)| prop.has_free_individual(variable))
+            {
+                return Err(KernelError::InvalidGeneralization {
+                    variable: variable.clone(),
+                    reason: "a local hypothesis mentions it".to_string(),
+                });
+            }
+            check_deps_do_not_mention(kernel, deps, variable, |prop, n| {
+                prop.has_free_individual(n)
+            })?;
+            Ok(Prop::forall_sorted(variable, sort.clone(), motive.clone()))
+        }
     }
 }
 

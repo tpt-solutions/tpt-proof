@@ -9,6 +9,8 @@
 //! - Inductive types are not exported as Lean `inductive` declarations. Their
 //!   constructors are uninterpreted symbols and their induction principle is
 //!   an exported axiom, so Lean does not check that the sort is free.
+//! - Case analysis on an inductive sort (`ProofTerm::Cases`) is rejected with
+//!   [`ExportError::UnsupportedRule`], because the sort has no Lean `casesOn`.
 //! - Only the lemmas passed to [`export`] are exported. A proof may refer to an
 //!   earlier lemma, but not to a kernel theorem whose proof term is not given.
 
@@ -39,6 +41,9 @@ pub enum ExportError {
     UnknownTheorem(String),
     /// A proof refers to an axiom the kernel does not declare.
     UnknownAxiom(String),
+    /// A proof uses a rule the export does not translate, such as case analysis
+    /// on an inductive sort, which Lean sees only as an uninterpreted type.
+    UnsupportedRule(String),
 }
 
 impl fmt::Display for ExportError {
@@ -50,6 +55,7 @@ impl fmt::Display for ExportError {
                 "proof refers to theorem `{name}`, which is not an earlier lemma"
             ),
             ExportError::UnknownAxiom(name) => write!(f, "proof refers to unknown axiom `{name}`"),
+            ExportError::UnsupportedRule(rule) => write!(f, "cannot export {rule} to Lean"),
         }
     }
 }
@@ -215,6 +221,19 @@ fn lean_proof(
             }
             out
         }
+        // The sort of the variable is left to Lean, which takes it from the equation.
+        ProofTerm::Cases(..) => {
+            return Err(ExportError::UnsupportedRule(
+                "case analysis on an inductive sort".to_string(),
+            ))
+        }
+        ProofTerm::Leibniz(variable, motive, equation, proof) => format!(
+            "(Eq.subst (motive := fun ({} : _) => {}) {} {})",
+            quote("var", variable)?,
+            lean_prop(motive)?,
+            go(equation)?,
+            go(proof)?
+        ),
     })
 }
 

@@ -95,6 +95,15 @@ pub enum KernelError {
     MissingCase(String),
     /// A recursive definition calls itself on something other than a recursive argument.
     NotStructural(String),
+    /// Case analysis gives a different number of cases than the sort has constructors.
+    WrongNumberOfCases {
+        /// The inductive sort being analysed.
+        sort: Sort,
+        /// The number of constructors the sort has.
+        expected: usize,
+        /// The number of cases given.
+        found: usize,
+    },
 }
 
 impl fmt::Display for KernelError {
@@ -149,6 +158,14 @@ impl fmt::Display for KernelError {
             KernelError::NotStructural(symbol) => write!(
                 f,
                 "`{symbol}` may only be called on a recursive argument of its case"
+            ),
+            KernelError::WrongNumberOfCases {
+                sort,
+                expected,
+                found,
+            } => write!(
+                f,
+                "case analysis on {sort} needs {expected} case(s), given {found}"
             ),
         }
     }
@@ -429,6 +446,117 @@ impl Kernel {
             prop,
             "induction principle: the sort is generated freely by its constructors",
         )
+    }
+
+    /// Defines `symbol(params) = body`, a non-recursive function over the
+    /// individual parameters `params`, and returns the new function's sort
+    /// `result`.
+    ///
+    /// The body is checked first, while `symbol` is still undeclared, so it can
+    /// use only the parameters and symbols declared earlier. That rules out
+    /// recursion, and it makes the definition conservative: it adds a fresh
+    /// symbol and one equation, which holds by construction. The equation is
+    /// recorded as the trusted axiom `symbol_def`:
+    ///
+    /// ```text
+    /// forall params. symbol(params) = body
+    /// ```
+    pub fn define_function(
+        &mut self,
+        symbol: &str,
+        params: &[(&str, Sort)],
+        result: &Sort,
+        body: &Term,
+    ) -> Result<()> {
+        let axiom = format!("{symbol}_def");
+        self.ensure_fresh(&axiom)?;
+        if self.functions.contains_key(symbol) {
+            return Err(KernelError::DuplicateName(symbol.to_string()));
+        }
+        self.check_sort(result)?;
+        let mut scope: Vec<(String, Sort)> = Vec::new();
+        for (name, sort) in params {
+            self.check_sort(sort)?;
+            if scope.iter().any(|(bound, _)| bound == name) {
+                return Err(KernelError::DuplicateName(name.to_string()));
+            }
+            scope.push((name.to_string(), sort.clone()));
+        }
+        let found = self.check_term_in(body, &scope)?;
+        if &found != result {
+            return Err(KernelError::SortMismatch {
+                expected: result.clone(),
+                found,
+            });
+        }
+
+        let args: Vec<Sort> = params.iter().map(|(_, sort)| sort.clone()).collect();
+        let call = Term::app(
+            symbol,
+            params.iter().map(|(name, _)| Term::var(name)).collect(),
+        );
+        let mut prop = Prop::Eq(call, body.clone());
+        for (name, sort) in params.iter().rev() {
+            prop = Prop::forall_sorted(name, sort.clone(), prop);
+        }
+        self.declare_function_sorted(symbol, args, result.clone())?;
+        self.declare_axiom(
+            &axiom,
+            prop,
+            "definition by a non-recursive equation: the symbol is fresh, so the definition is conservative",
+        )
+    }
+
+    /// The constructors of an inductive sort with their argument sorts, in
+    /// declaration order. `None` if the sort is not inductive.
+    pub fn constructors(&self, sort: &Sort) -> Option<&[(String, Vec<Sort>)]> {
+        self.inductives.get(&sort.0).map(Vec::as_slice)
+    }
+
+    /// The premise that case analysis on `variable : sort` needs for one
+    /// constructor `C(a0..an)` of `sort`, given the proposition `motive` over
+    /// `variable`:
+    ///
+    /// ```text
+    /// forall a0:S0 .. an:Sn. motive[variable := C(a0..an)]
+    /// ```
+    ///
+    /// The binders avoid the free individuals of `motive`, so the substitution
+    /// cannot capture them. Both [`ProofTerm::Cases`] and the `case_split` tactic
+    /// build their premises with this function.
+    pub fn case_premise(
+        &self,
+        variable: &str,
+        sort: &Sort,
+        motive: &Prop,
+        constructor: &str,
+    ) -> Result<Prop> {
+        let constructors = self
+            .constructors(sort)
+            .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
+        let (_, args) = constructors
+            .iter()
+            .find(|(name, _)| name == constructor)
+            .ok_or_else(|| KernelError::UnknownConstructor(constructor.to_string()))?;
+
+        let mut taken = Vec::new();
+        motive.free_individuals(&mut taken);
+        let binders: Vec<String> = (0..args.len())
+            .map(|j| {
+                let mut name = format!("a{j}");
+                while taken.contains(&name) {
+                    name.push('\'');
+                }
+                name
+            })
+            .collect();
+
+        let term = Term::app(constructor, binders.iter().map(|b| Term::var(b)).collect());
+        let mut premise = motive.subst_individual(variable, &term);
+        for (binder, arg) in binders.iter().zip(args).rev() {
+            premise = Prop::forall_sorted(binder, arg.clone(), premise);
+        }
+        Ok(premise)
     }
 
     /// Defines `symbol : sort -> result` by structural recursion on an inductive

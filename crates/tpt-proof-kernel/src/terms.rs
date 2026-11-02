@@ -263,8 +263,9 @@ impl Prop {
     }
 
     /// Substitutes the term `replacement` for the free individual variable
-    /// `name`, renaming bound individual variables where needed.
-    pub(crate) fn subst_individual(&self, name: &str, replacement: &Term) -> Prop {
+    /// `name`, renaming bound individual variables where needed. Tactics use it
+    /// to rebuild a goal from its abstraction, and it does not affect checking.
+    pub fn subst_individual(&self, name: &str, replacement: &Term) -> Prop {
         match self {
             Prop::Atom(_) => self.clone(),
             Prop::Imp(a, b) => Prop::imp(
@@ -435,4 +436,16 @@ pub enum ProofTerm {
     /// Congruence: from `t_i = s_i` for each argument, proves
     /// `f(t_1, ..) = f(s_1, ..)`. Each argument proof must prove an equality.
     Cong(String, Vec<ProofTerm>),
+    /// Leibniz substitution: `Leibniz(x, P, eq, proof)` takes `eq : t = s`, and
+    /// `proof : P[x := t]`, and proves `P[x := s]`. `x` is an individual variable
+    /// that `P` may mention, and both sides of `eq` must have the sort of `x`.
+    Leibniz(String, Prop, Box<ProofTerm>, Box<ProofTerm>),
+    /// Case analysis on an inductive sort: `Cases(x, sort, P, cases)` proves
+    /// `forall x:sort. P`. `cases` has one proof per constructor, in declaration
+    /// order, each proving the premise given by [`crate::Kernel::case_premise`].
+    ///
+    /// The rule is sound because the constructors generate the sort freely, the
+    /// same trust that [`crate::Kernel::declare_induction`] relies on. Unlike
+    /// induction, the premises get no hypotheses for recursive arguments.
+    Cases(String, Sort, Prop, Vec<ProofTerm>),
 }

@@ -92,12 +92,52 @@ fn lemmas(kernel: &mut Kernel) -> Vec<Lemma> {
     );
     let uses_identity_prop = Prop::imp(atom("q"), atom("q"));
 
+    // All x y. x = y -> x = c -> y = c, by Leibniz substitution on the motive `x = c`.
+    let substitution = ProofTerm::IndLam(
+        "x".to_string(),
+        Sort::ind(),
+        Box::new(ProofTerm::IndLam(
+            "y".to_string(),
+            Sort::ind(),
+            Box::new(ProofTerm::Lam(
+                "h".to_string(),
+                eq(Term::var("x"), Term::var("y")),
+                Box::new(ProofTerm::Lam(
+                    "p".to_string(),
+                    eq(Term::var("x"), Term::constant("c")),
+                    Box::new(ProofTerm::Leibniz(
+                        "x".to_string(),
+                        eq(Term::var("x"), Term::constant("c")),
+                        Box::new(var("h")),
+                        Box::new(var("p")),
+                    )),
+                )),
+            )),
+        )),
+    );
+    let substitution_prop = Prop::forall_sorted(
+        "x",
+        Sort::ind(),
+        Prop::forall_sorted(
+            "y",
+            Sort::ind(),
+            Prop::imp(
+                eq(Term::var("x"), Term::var("y")),
+                Prop::imp(
+                    eq(Term::var("x"), Term::constant("c")),
+                    eq(Term::var("y"), Term::constant("c")),
+                ),
+            ),
+        ),
+    );
+
     let claims = [
         ("identity", identity, identity_prop),
         ("symmetry", symmetry, symmetry_prop),
         ("congruence", congruence, congruence_prop),
         ("axiom_use", axiom_use, axiom_prop),
         ("uses_identity", uses_identity, uses_identity_prop),
+        ("substitution", substitution, substitution_prop),
     ];
     let mut out = Vec::new();
     for (name, proof, prop) in claims {
@@ -184,4 +224,42 @@ fn lean_accepts_the_exported_proofs() {
         String::from_utf8_lossy(&output.stdout),
         String::from_utf8_lossy(&output.stderr)
     );
+}
+
+#[test]
+fn case_analysis_is_refused_rather_than_exported() {
+    let mut kernel = Kernel::new();
+    kernel
+        .declare_inductive(
+            "Nat",
+            &[("zero", vec![]), ("succ", vec![Sort::named("Nat")])],
+        )
+        .expect("declare Nat");
+    let motive = eq(Term::var("x"), Term::var("x"));
+    let proof = ProofTerm::Cases(
+        "x".to_string(),
+        Sort::named("Nat"),
+        motive.clone(),
+        vec![
+            ProofTerm::Refl(Term::constant("zero")),
+            ProofTerm::IndLam(
+                "a0".to_string(),
+                Sort::named("Nat"),
+                Box::new(ProofTerm::Refl(Term::app("succ", vec![Term::var("a0")]))),
+            ),
+        ],
+    );
+    let claim = Prop::forall_sorted("x", Sort::named("Nat"), motive);
+    kernel
+        .declare_theorem("cases_refl", &proof, &claim)
+        .expect("kernel accepts the proof");
+    let lemma = Lemma {
+        name: "cases_refl".to_string(),
+        prop: claim,
+        proof,
+    };
+    assert!(matches!(
+        export(&kernel, &[lemma]),
+        Err(ExportError::UnsupportedRule(_))
+    ));
 }
