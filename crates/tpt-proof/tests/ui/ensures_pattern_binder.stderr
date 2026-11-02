@@ -1,0 +1,5 @@
+error: `ensures` takes a closure with one plain name, such as `|result| ...`
+ --> tests/ui/ensures_pattern_binder.rs:3:12
+  |
+3 | #[ensures(|(a, b)| a > b)]
+  |            ^^^^^^

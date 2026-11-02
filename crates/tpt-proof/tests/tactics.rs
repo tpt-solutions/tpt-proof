@@ -3,6 +3,7 @@
 
 use tpt_proof::prelude::*;
 use tpt_proof::tactics::{Proof, ProofError, Suggestion, TacticError};
+use tpt_proof_kernel::{Sort, Term};
 
 fn atom(name: &str) -> Prop {
     Prop::atom(name)
@@ -227,5 +228,151 @@ fn suggestions_display_as_the_tactic_calls() {
     assert_eq!(
         Suggestion::ApplyAxiom("ax_ab".to_string()).to_string(),
         "apply_axiom ax_ab"
+    );
+}
+
+fn nat() -> Sort {
+    Sort::named("Nat")
+}
+
+/// `Nat` with constructors `zero` and `succ : Nat -> Nat`.
+fn nat_kernel() -> Kernel {
+    let mut kernel = Kernel::new();
+    kernel
+        .declare_inductive("Nat", &[("zero", vec![]), ("succ", vec![nat()])])
+        .expect("declare Nat");
+    kernel
+}
+
+/// `forall x:Nat. x = x`.
+fn reflexive_target() -> Prop {
+    Prop::forall_sorted("x", nat(), Prop::Eq(Term::var("x"), Term::var("x")))
+}
+
+#[test]
+fn case_split_proves_reflexivity_one_constructor_at_a_time() {
+    let kernel = nat_kernel();
+    let mut proof = Proof::new(&kernel, reflexive_target());
+    proof.case_split().expect("case_split");
+    assert_eq!(proof.goals().len(), 2);
+
+    proof
+        .exact(ProofTerm::Refl(Term::constant("zero")))
+        .expect("zero case");
+    proof
+        .exact(ProofTerm::IndLam(
+            "a0".to_string(),
+            nat(),
+            Box::new(ProofTerm::Refl(Term::app("succ", vec![Term::var("a0")]))),
+        ))
+        .expect("succ case");
+    let thm = proof.qed().expect("kernel accepts the proof");
+    assert_eq!(thm.prop(), &reflexive_target());
+}
+
+#[test]
+fn case_split_is_suggested_for_an_inductive_forall() {
+    let kernel = nat_kernel();
+    let proof = Proof::new(&kernel, reflexive_target());
+    assert!(proof.suggestions().contains(&Suggestion::CaseSplit));
+}
+
+#[test]
+fn case_split_needs_a_forall_over_individuals() {
+    let kernel = nat_kernel();
+    let mut proof = Proof::new(&kernel, atom("A"));
+    assert_eq!(
+        proof.case_split(),
+        Err(TacticError::NotAnIndividualForall(atom("A")))
+    );
+}
+
+#[test]
+fn case_split_needs_an_inductive_sort() {
+    let kernel = nat_kernel();
+    let target = Prop::forall_ind("x", Prop::Eq(Term::var("x"), Term::var("x")));
+    let mut proof = Proof::new(&kernel, target);
+    assert_eq!(
+        proof.case_split(),
+        Err(TacticError::NotInductive(Sort::ind()))
+    );
+}
+
+/// Constants `a` and `b`, predicate `P/1`, `ab : a = b`, and `pb : P(b)`.
+fn rewrite_kernel() -> Kernel {
+    let mut kernel = Kernel::new();
+    kernel.declare_function("a", 0).expect("declare a");
+    kernel.declare_function("b", 0).expect("declare b");
+    kernel.declare_predicate("P", 1).expect("declare P");
+    kernel
+        .declare_axiom(
+            "ab",
+            Prop::Eq(Term::constant("a"), Term::constant("b")),
+            "test axiom",
+        )
+        .expect("declare ab");
+    kernel
+        .declare_axiom(
+            "pb",
+            Prop::Pred("P".to_string(), vec![Term::constant("b")]),
+            "test axiom",
+        )
+        .expect("declare pb");
+    kernel
+}
+
+fn p_of(term: Term) -> Prop {
+    Prop::Pred("P".to_string(), vec![term])
+}
+
+#[test]
+fn rewrite_with_an_axiom_turns_the_goal_into_the_rewritten_one() {
+    let kernel = rewrite_kernel();
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("a")));
+    proof.rewrite_axiom("ab").expect("rewrite");
+    assert_eq!(proof.goals()[0].target, p_of(Term::constant("b")));
+    proof
+        .exact(ProofTerm::Axiom("pb".to_string()))
+        .expect("exact");
+    let thm = proof.qed().expect("kernel accepts the rewrite");
+    assert_eq!(thm.prop(), &p_of(Term::constant("a")));
+    assert!(thm.axioms().contains("ab"));
+    assert!(thm.axioms().contains("pb"));
+}
+
+#[test]
+fn rewrite_with_a_hypothesis_after_intro() {
+    let kernel = rewrite_kernel();
+    let target = Prop::imp(
+        Prop::Eq(Term::constant("a"), Term::constant("b")),
+        p_of(Term::constant("a")),
+    );
+    let mut proof = Proof::new(&kernel, target.clone());
+    proof.intro("h").expect("intro");
+    proof.rewrite_hyp("h").expect("rewrite");
+    proof
+        .exact(ProofTerm::Axiom("pb".to_string()))
+        .expect("exact");
+    let thm = proof.qed().expect("kernel accepts");
+    assert_eq!(thm.prop(), &target);
+}
+
+#[test]
+fn rewrite_needs_the_left_hand_side_in_the_goal() {
+    let kernel = rewrite_kernel();
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("b")));
+    assert_eq!(
+        proof.rewrite_axiom("ab"),
+        Err(TacticError::RewriteTargetNotFound(Term::constant("a")))
+    );
+}
+
+#[test]
+fn rewrite_needs_an_equation() {
+    let kernel = rewrite_kernel();
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("b")));
+    assert_eq!(
+        proof.rewrite_axiom("pb"),
+        Err(TacticError::NotAnEquation(p_of(Term::constant("b"))))
     );
 }

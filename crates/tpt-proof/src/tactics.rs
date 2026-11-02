@@ -9,7 +9,7 @@
 
 use std::fmt;
 
-use tpt_proof_kernel::{Kernel, KernelError, ProofTerm, Prop, Theorem};
+use tpt_proof_kernel::{Kernel, KernelError, ProofTerm, Prop, Sort, Term, Theorem};
 
 /// A proposition to prove, together with the hypotheses available to prove it.
 #[derive(Debug, Clone, PartialEq, Eq)]
@@ -44,6 +44,8 @@ pub enum Suggestion {
     ApplyAxiom(String),
     /// `apply_theorem name`, when a checked theorem concludes the goal.
     ApplyTheorem(String),
+    /// `case_split`, for a goal `forall x:T. P` where `T` is an inductive sort.
+    CaseSplit,
 }
 
 impl fmt::Display for Suggestion {
@@ -55,6 +57,7 @@ impl fmt::Display for Suggestion {
             Suggestion::ApplyHyp(name) => write!(f, "apply_hyp {name}"),
             Suggestion::ApplyAxiom(name) => write!(f, "apply_axiom {name}"),
             Suggestion::ApplyTheorem(name) => write!(f, "apply_theorem {name}"),
+            Suggestion::CaseSplit => write!(f, "case_split"),
         }
     }
 }
@@ -90,6 +93,20 @@ pub enum TacticError {
     NoMatchingHypothesis,
     /// Renaming the bound variable would capture a free name in the target.
     NameClash(String),
+    /// `case_split` needs a universal quantifier over individuals.
+    NotAnIndividualForall(Prop),
+    /// `case_split` needs the quantified sort to be inductive.
+    NotInductive(Sort),
+    /// `case_split` on a variable that a hypothesis mentions would make the
+    /// split unsound, because the hypothesis refers to one particular value.
+    VariableInHypothesis(String),
+    /// `rewrite` needs an equation.
+    NotAnEquation(Prop),
+    /// `rewrite` finds no occurrence of the equation's left-hand side in the goal.
+    RewriteTargetNotFound(Term),
+    /// The left-hand side depends on a variable that the goal binds, so it cannot be
+    /// abstracted out of the goal.
+    RewriteUnsafe(Term),
 }
 
 impl fmt::Display for TacticError {
@@ -108,6 +125,29 @@ impl fmt::Display for TacticError {
             }
             TacticError::NoMatchingHypothesis => write!(f, "no hypothesis matches the goal"),
             TacticError::NameClash(n) => write!(f, "`{n}` is already free in the target"),
+            TacticError::NotAnIndividualForall(p) => {
+                write!(f, "`case_split` needs a forall over individuals, found {p}")
+            }
+            TacticError::NotInductive(sort) => {
+                write!(
+                    f,
+                    "`case_split` needs an inductive sort, `{sort}` is not one"
+                )
+            }
+            TacticError::VariableInHypothesis(n) => {
+                write!(
+                    f,
+                    "`{n}` is mentioned by a hypothesis, so it cannot be split"
+                )
+            }
+            TacticError::NotAnEquation(p) => write!(f, "`rewrite` needs an equation, found {p}"),
+            TacticError::RewriteTargetNotFound(t) => {
+                write!(f, "`rewrite` finds no occurrence of {t} in the goal")
+            }
+            TacticError::RewriteUnsafe(t) => write!(
+                f,
+                "{t} depends on a variable the goal binds, so it cannot be rewritten"
+            ),
         }
     }
 }
@@ -243,6 +283,51 @@ impl<'k> Proof<'k> {
         })
     }
 
+    /// `case_split`: from a goal `forall x:T. P` with `T` inductive, leaves one
+    /// goal per constructor `C`, namely `forall a0..an. P[x := C(a0..an)]`.
+    pub fn case_split(&mut self) -> Result<(), TacticError> {
+        let kernel = self.kernel;
+        self.apply(|goal| case_split(kernel, goal))
+    }
+
+    /// `rewrite_hyp name`: rewrites the goal with hypothesis `name : l = r`. The
+    /// occurrences of `l` in the goal become `r`, and the new goal is the
+    /// goal with `r` in their place.
+    pub fn rewrite_hyp(&mut self, name: &str) -> Result<(), TacticError> {
+        let prop = {
+            let goal = self.focus()?;
+            goal.hyps
+                .iter()
+                .rev()
+                .find(|(n, _)| n == name)
+                .map(|(_, p)| p.clone())
+                .ok_or_else(|| TacticError::NoSuchHypothesis(name.to_string()))?
+        };
+        self.apply(|goal| rewrite(goal, &prop, ProofTerm::Var(name.to_string())))
+    }
+
+    /// `rewrite_axiom name`: as [`Proof::rewrite_hyp`], with a declared axiom.
+    pub fn rewrite_axiom(&mut self, name: &str) -> Result<(), TacticError> {
+        let prop = self
+            .kernel
+            .axiom(name)
+            .ok_or_else(|| TacticError::NoSuchAxiom(name.to_string()))?
+            .prop
+            .clone();
+        self.apply(|goal| rewrite(goal, &prop, ProofTerm::Axiom(name.to_string())))
+    }
+
+    /// `rewrite_theorem name`: as [`Proof::rewrite_hyp`], with a checked theorem.
+    pub fn rewrite_theorem(&mut self, name: &str) -> Result<(), TacticError> {
+        let prop = self
+            .kernel
+            .theorem(name)
+            .ok_or_else(|| TacticError::NoSuchTheorem(name.to_string()))?
+            .prop()
+            .clone();
+        self.apply(|goal| rewrite(goal, &prop, ProofTerm::Const(name.to_string())))
+    }
+
     /// Finishes the proof. It fails if goals remain open or the kernel rejects
     /// the assembled term. On success the theorem is returned.
     pub fn qed(self) -> Result<Theorem, ProofError> {
@@ -266,6 +351,9 @@ impl<'k> Proof<'k> {
         match &goal.target {
             Prop::Imp(_, _) => out.push(Suggestion::Intro),
             Prop::Forall(_, _) => out.push(Suggestion::IntroForall),
+            Prop::ForallInd(_, sort, _) if self.kernel.constructors(sort).is_some() => {
+                out.push(Suggestion::CaseSplit)
+            }
             _ => {}
         }
         if goal
@@ -387,6 +475,181 @@ fn apply_term(goal: &Goal, term: ProofTerm, prop: Prop) -> Result<Step, TacticEr
         subgoals: vec![subgoal],
         build: Box::new(move |mut kids| ProofTerm::App(Box::new(term), Box::new(kids.remove(0)))),
     })
+}
+
+fn case_split(kernel: &Kernel, goal: &Goal) -> Result<Step, TacticError> {
+    let Prop::ForallInd(variable, sort, motive) = &goal.target else {
+        return Err(TacticError::NotAnIndividualForall(goal.target.clone()));
+    };
+    let constructors = kernel
+        .constructors(sort)
+        .ok_or_else(|| TacticError::NotInductive(sort.clone()))?;
+    if goal
+        .hyps
+        .iter()
+        .any(|(_, prop)| prop.has_free_individual(variable))
+    {
+        return Err(TacticError::VariableInHypothesis(variable.clone()));
+    }
+    let mut subgoals = Vec::new();
+    for (constructor, _) in constructors {
+        let target = kernel
+            .case_premise(variable, sort, motive, constructor)
+            .map_err(|_| TacticError::NotInductive(sort.clone()))?;
+        subgoals.push(Goal {
+            hyps: goal.hyps.clone(),
+            target,
+        });
+    }
+    let variable = variable.clone();
+    let sort = sort.clone();
+    let motive = (**motive).clone();
+    Ok(Step {
+        subgoals,
+        build: Box::new(move |kids| ProofTerm::Cases(variable, sort, motive, kids)),
+    })
+}
+
+/// Rewrites the goal with `equation : l = r` (proved by `proof`): the new goal has
+/// `r` where the goal has `l`, and the proof builds the old goal back with
+/// Leibniz substitution on the symmetric equation `r = l`.
+fn rewrite(goal: &Goal, equation: &Prop, proof: ProofTerm) -> Result<Step, TacticError> {
+    let Prop::Eq(lhs, rhs) = equation else {
+        return Err(TacticError::NotAnEquation(equation.clone()));
+    };
+    let variable = fresh_variable(goal, &[lhs, rhs]);
+    let (motive, found) = abstract_term(&goal.target, lhs, &variable)
+        .ok_or_else(|| TacticError::RewriteUnsafe(lhs.clone()))?;
+    if !found {
+        return Err(TacticError::RewriteTargetNotFound(lhs.clone()));
+    }
+    let subgoal = Goal {
+        hyps: goal.hyps.clone(),
+        target: motive.subst_individual(&variable, rhs),
+    };
+    let symmetric = ProofTerm::Sym(Box::new(proof));
+    Ok(Step {
+        subgoals: vec![subgoal],
+        build: Box::new(move |mut kids| {
+            ProofTerm::Leibniz(
+                variable,
+                motive,
+                Box::new(symmetric),
+                Box::new(kids.remove(0)),
+            )
+        }),
+    })
+}
+
+/// Replaces every occurrence of `term` in `prop` by the variable `var`. Returns the
+/// abstracted proposition and whether anything was replaced. `None` when an
+/// occurrence sits under a binder that `term` depends on, since the same name
+/// would then denote a different value there.
+fn abstract_term(prop: &Prop, term: &Term, var: &str) -> Option<(Prop, bool)> {
+    Some(match prop {
+        Prop::Atom(name) => (Prop::Atom(name.clone()), false),
+        Prop::Imp(a, b) => {
+            let (a, found_a) = abstract_term(a, term, var)?;
+            let (b, found_b) = abstract_term(b, term, var)?;
+            (Prop::imp(a, b), found_a || found_b)
+        }
+        Prop::Forall(name, body) => {
+            let (body, found) = abstract_term(body, term, var)?;
+            (Prop::forall(name, body), found)
+        }
+        Prop::ForallInd(name, sort, body) => {
+            let (body, found) = abstract_term(body, term, var)?;
+            if found && term_vars(term).contains(name) {
+                return None;
+            }
+            (Prop::forall_sorted(name, sort.clone(), body), found)
+        }
+        Prop::Eq(left, right) => {
+            let (left, found_left) = replace_term(left, term, var);
+            let (right, found_right) = replace_term(right, term, var);
+            (Prop::Eq(left, right), found_left || found_right)
+        }
+        Prop::Pred(symbol, args) => {
+            let mut found = false;
+            let args = args
+                .iter()
+                .map(|arg| {
+                    let (arg, hit) = replace_term(arg, term, var);
+                    found |= hit;
+                    arg
+                })
+                .collect();
+            (Prop::Pred(symbol.clone(), args), found)
+        }
+    })
+}
+
+fn replace_term(term: &Term, target: &Term, var: &str) -> (Term, bool) {
+    if term == target {
+        return (Term::var(var), true);
+    }
+    match term {
+        Term::Var(_) => (term.clone(), false),
+        Term::Fun(symbol, args) => {
+            let mut found = false;
+            let args = args
+                .iter()
+                .map(|arg| {
+                    let (arg, hit) = replace_term(arg, target, var);
+                    found |= hit;
+                    arg
+                })
+                .collect();
+            (Term::app(symbol, args), found)
+        }
+    }
+}
+
+/// The individual variables a term mentions.
+fn term_vars(term: &Term) -> Vec<String> {
+    match term {
+        Term::Var(name) => vec![name.clone()],
+        Term::Fun(_, args) => args.iter().flat_map(term_vars).collect(),
+    }
+}
+
+/// Every individual name that a proposition mentions, bound or free.
+fn names_in(prop: &Prop, out: &mut Vec<String>) {
+    match prop {
+        Prop::Atom(_) => {}
+        Prop::Imp(a, b) => {
+            names_in(a, out);
+            names_in(b, out);
+        }
+        Prop::Forall(_, body) => names_in(body, out),
+        Prop::ForallInd(name, _, body) => {
+            out.push(name.clone());
+            names_in(body, out);
+        }
+        Prop::Eq(left, right) => {
+            out.extend(term_vars(left));
+            out.extend(term_vars(right));
+        }
+        Prop::Pred(_, args) => out.extend(args.iter().flat_map(term_vars)),
+    }
+}
+
+/// A name for a new individual variable that no hypothesis, the target, or the
+/// given terms use, so that the abstraction cannot be captured.
+fn fresh_variable(goal: &Goal, terms: &[&Term]) -> String {
+    let mut taken = Vec::new();
+    names_in(&goal.target, &mut taken);
+    for (_, prop) in &goal.hyps {
+        names_in(prop, &mut taken);
+    }
+    for term in terms {
+        taken.extend(term_vars(term));
+    }
+    let mut name = "x".to_string();
+    while taken.contains(&name) {
+        name.push('\'');
+    }
+    name
 }
 
 fn collect_open(tree: &Tree, out: &mut Vec<Goal>) {

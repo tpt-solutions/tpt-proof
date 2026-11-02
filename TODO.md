@@ -56,15 +56,15 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `Type`, `Proposition`, `ProofTerm` AST (`terms.rs`)
 - [x] Opaque `Theorem` type, constructible only by the kernel
 - [x] Contexts, variable binding, capture-avoiding substitution
-- [ ] Proof checker (`checker.rs`): Var, Lam, App, Forall, Constr, Match, Axiom (partial: Var, Lam, App, Axiom, Const, TyLam, TyApp done; Constr, Match pending)
+- [x] Proof checker (`checker.rs`): Var, Lam, App, Forall, Axiom, Const, TyLam, TyApp, Leibniz, and Cases (case analysis on an inductive sort, `ProofTerm::Cases`). Constructors need no proof-term form: they are term symbols, used through `Term::Fun`.
 - [x] Inductive type declarations, multiple sorts, and induction axioms (positivity holds by construction: first-order arguments only; recursors pending)
 - [x] Recursive function definitions: structural recursion with extra parameters via `define_by_recursion_with_params` (general termination checking pending)
-- [x] Equality: refl, symm, trans, congruence (ground terms over uninterpreted symbols; Leibniz substitution pending)
+- [x] Equality: refl, symm, trans, congruence, and Leibniz substitution (`ProofTerm::Leibniz`, exported to Lean as `Eq.subst`; ground terms over uninterpreted symbols)
 - [x] Individual quantification (`forall x. A`), individual variables, and predicate symbols, with the generalization side condition (added beyond the original plan; see docs/design-inductive-types.md)
 - [ ] Trusted axioms (`axioms.rs`): logical, equality, bounded arithmetic
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem
-- [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (partial: declare_axiom, declare_theorem, check_proof, assume, declare_inductive done; define_function pending, with `define_by_recursion` covering its structural case)
+- [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (declare_axiom, declare_theorem, check_proof, assume, declare_inductive, and define_function done; define_function is non-recursive and conservative, recursion goes through `define_by_recursion`)
 - [x] Unit tests, property-based tests, and negative tests (bogus proofs must be rejected)
 - [x] Enforce <5,000 LOC and zero deps in CI
 - [x] `AUDIT.md` (scope, reviewers, status)
@@ -74,12 +74,12 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Phase 2: Layer 1, type-level specs
 
 - [x] `#[refined(...)]` attribute (e.g. `value < total_blocks`, or a literal bound): a checked `new` returning `Option` and a getter, in `tpt-proof-macros`
-- [ ] Compile-time checks via const eval plus simple bound queries (const-checked constructor done; bound queries pending)
+- [x] Compile-time checks via const eval plus simple bound queries (const-checked constructor, `Index::bound()`, and const-checked `widen` to a larger bound)
 - [x] `#[state_machine(...)]` attribute: declares the states, a sealed state trait, and `transition`; the hand-written FileHandle stays as the reference
 - [x] Unit-correctness types (blocks / bytes / sectors)
 - [x] Ghost state and phantom type helpers
 - [x] `tpt_proof::prelude`
-- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests and trybuild tests for tpt-proof-core done; trybuild for the facade's derive attributes done; trybuild for the contract crate and examples pending)
+- [ ] trybuild compile-fail tests, docs, examples (compile_fail doctests and trybuild tests for tpt-proof-core done; trybuild for the facade's derive attributes done; trybuild for the facade's contract attributes added, with a case for `ensures` misuse; trybuild for the contract crate and examples pending)
 - [x] **Milestone: write and check type-level specs** (hand-written; derive macros pending)
 
 ## Phase 3: Layer 2, contracts
@@ -101,11 +101,11 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Phase 4: Layer 3, interactive proofs
 
 - [ ] DSL macros: `#[theorem]`, `#[lemma]`, `arbitrary()`, `assume()`, `show()`, `by {}` (not started: needs the proc-macro crate; tactics are the Rust API for now)
-- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact done; case_split, induct, simplify pending)
+- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact, case_split, and rewrite (`rewrite_hyp`, `rewrite_axiom`, `rewrite_theorem`: directed rewriting by an equation, built on Leibniz substitution) done. `simplify` is read as a strategy that applies a rule set of rewrites, and is not built; `induct` is pending, because it needs predicate abstraction over the goal, which the kernel's induction axioms do not yet support)
 - [x] Each tactic step emits a proof term that the kernel checks
 - [x] Interactive mode: goal display and suggested next steps (`Proof::suggestions` lists the tactics that apply to the focused goal: intro, intro_forall, assumption, apply_hyp/axiom/theorem; advice only)
 - [x] Dependency/axiom reports (`tpt_proof::report::dependency_report`: each theorem, its axioms, and their justifications)
-- [ ] Lemma library: a shared store of checked lemmas that other kernels can load (not started; needs a serialization format for proof terms)
+- [x] Lemma library: `tpt_proof::library::{save, load}` write a kernel environment and its lemmas as S-expressions, and load them into a fresh kernel. Loading is untrusted: every declaration is replayed through the kernel API and every lemma goes through `check_proof`. `save` loads its own output before returning it. Theorems not passed to `save` are not saved, and definitions by recursion are saved as their generated axioms.
 - [x] **Milestone: write and check interactive proofs** (via the tactics API)
 
 ## Phase 5: Layer 4, runtime verification
