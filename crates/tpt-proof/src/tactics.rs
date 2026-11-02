@@ -29,6 +29,41 @@ impl fmt::Display for Goal {
     }
 }
 
+/// A tactic that may apply to the current goal. See [`Proof::suggestions`].
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Suggestion {
+    /// `intro`, for a goal `A -> B`. The name is chosen by the user.
+    Intro,
+    /// `intro_forall`, for a goal `forall p. B`. The name is chosen by the user.
+    IntroForall,
+    /// `assumption`, when a hypothesis matches the goal exactly.
+    Assumption,
+    /// `apply_hyp name`, when hypothesis `name` concludes the goal.
+    ApplyHyp(String),
+    /// `apply_axiom name`, when a declared axiom concludes the goal.
+    ApplyAxiom(String),
+    /// `apply_theorem name`, when a checked theorem concludes the goal.
+    ApplyTheorem(String),
+}
+
+impl fmt::Display for Suggestion {
+    fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
+        match self {
+            Suggestion::Intro => write!(f, "intro <name>"),
+            Suggestion::IntroForall => write!(f, "intro_forall <name>"),
+            Suggestion::Assumption => write!(f, "assumption"),
+            Suggestion::ApplyHyp(name) => write!(f, "apply_hyp {name}"),
+            Suggestion::ApplyAxiom(name) => write!(f, "apply_axiom {name}"),
+            Suggestion::ApplyTheorem(name) => write!(f, "apply_theorem {name}"),
+        }
+    }
+}
+
+/// Whether `prop` is an implication whose conclusion is `target`.
+fn concludes(prop: &Prop, target: &Prop) -> bool {
+    matches!(prop, Prop::Imp(_, conclusion) if conclusion.alpha_eq(target))
+}
+
 /// Why a tactic could not be applied to a goal.
 #[derive(Debug, Clone, PartialEq, Eq)]
 pub enum TacticError {
@@ -218,6 +253,44 @@ impl<'k> Proof<'k> {
         }
         let term = assemble(self.tree).expect("no open goals remain");
         Ok(self.kernel.check_proof(&term, &self.target)?)
+    }
+
+    /// The tactics that apply to the first open goal, most direct first. Each
+    /// one is a call that [`Proof`] would accept. This is advice only: nothing
+    /// is applied, and the kernel still decides at [`Proof::qed`].
+    pub fn suggestions(&self) -> Vec<Suggestion> {
+        let Ok(goal) = self.focus() else {
+            return Vec::new();
+        };
+        let mut out = Vec::new();
+        match &goal.target {
+            Prop::Imp(_, _) => out.push(Suggestion::Intro),
+            Prop::Forall(_, _) => out.push(Suggestion::IntroForall),
+            _ => {}
+        }
+        if goal
+            .hyps
+            .iter()
+            .any(|(_, prop)| prop.alpha_eq(&goal.target))
+        {
+            out.push(Suggestion::Assumption);
+        }
+        for (name, prop) in goal.hyps.iter().rev() {
+            if concludes(prop, &goal.target) {
+                out.push(Suggestion::ApplyHyp(name.clone()));
+            }
+        }
+        for axiom in self.kernel.axioms() {
+            if concludes(&axiom.prop, &goal.target) {
+                out.push(Suggestion::ApplyAxiom(axiom.name.clone()));
+            }
+        }
+        for (name, theorem) in self.kernel.theorems() {
+            if concludes(theorem.prop(), &goal.target) {
+                out.push(Suggestion::ApplyTheorem(name.to_string()));
+            }
+        }
+        out
     }
 
     fn focus(&self) -> Result<Goal, TacticError> {

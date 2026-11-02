@@ -33,6 +33,7 @@
 // only produced for rejected steps, so boxing them is not worth the API cost.
 #![allow(clippy::result_large_err)]
 
+pub mod report;
 pub mod tactics;
 
 /// Everything a typical user needs from each layer.

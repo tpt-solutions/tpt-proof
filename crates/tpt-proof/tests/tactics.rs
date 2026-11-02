@@ -2,7 +2,7 @@
 //! assembled term checks, and an unsound step is caught at `qed`.
 
 use tpt_proof::prelude::*;
-use tpt_proof::tactics::{Proof, ProofError, TacticError};
+use tpt_proof::tactics::{Proof, ProofError, Suggestion, TacticError};
 
 fn atom(name: &str) -> Prop {
     Prop::atom(name)
@@ -173,4 +173,59 @@ fn goal_display_shows_hypotheses_and_target() {
     proof.intro("a").expect("intro");
     let shown = proof.goals()[0].to_string();
     assert_eq!(shown, "a : A\n⊢ B");
+}
+
+#[test]
+fn suggestions_offer_intro_for_an_implication() {
+    let kernel = Kernel::new();
+    let proof = Proof::new(&kernel, Prop::imp(atom("A"), atom("A")));
+    assert_eq!(proof.suggestions(), vec![Suggestion::Intro]);
+}
+
+#[test]
+fn suggestions_offer_assumption_once_a_hypothesis_matches() {
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::imp(atom("A"), atom("A")));
+    proof.intro("h").expect("intro");
+    assert_eq!(proof.suggestions(), vec![Suggestion::Assumption]);
+}
+
+#[test]
+fn suggestions_offer_axioms_and_theorems_that_conclude_the_goal() {
+    let mut kernel = kernel_with_axioms();
+    kernel
+        .declare_theorem(
+            "ab_again",
+            &ProofTerm::Axiom("ax_ab".to_string()),
+            &Prop::imp(atom("A"), atom("B")),
+        )
+        .expect("declare");
+    let proof = Proof::new(&kernel, atom("B"));
+    let suggestions = proof.suggestions();
+    assert!(
+        suggestions.contains(&Suggestion::ApplyAxiom("ax_ab".to_string())),
+        "{suggestions:?}"
+    );
+    assert!(
+        suggestions.contains(&Suggestion::ApplyTheorem("ab_again".to_string())),
+        "{suggestions:?}"
+    );
+}
+
+#[test]
+fn suggestions_are_empty_once_no_goals_remain() {
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::imp(atom("A"), atom("A")));
+    proof.intro("h").expect("intro");
+    proof.assumption().expect("assumption");
+    assert!(proof.suggestions().is_empty());
+}
+
+#[test]
+fn suggestions_display_as_the_tactic_calls() {
+    assert_eq!(Suggestion::Intro.to_string(), "intro <name>");
+    assert_eq!(
+        Suggestion::ApplyAxiom("ax_ab".to_string()).to_string(),
+        "apply_axiom ax_ab"
+    );
 }
