@@ -46,6 +46,8 @@ pub enum Suggestion {
     ApplyTheorem(String),
     /// `case_split`, for a goal `forall x:T. P` where `T` is an inductive sort.
     CaseSplit,
+    /// `induct`, for a goal `forall x:T. P` where `T` is an inductive sort.
+    Induct,
 }
 
 impl fmt::Display for Suggestion {
@@ -58,6 +60,7 @@ impl fmt::Display for Suggestion {
             Suggestion::ApplyAxiom(name) => write!(f, "apply_axiom {name}"),
             Suggestion::ApplyTheorem(name) => write!(f, "apply_theorem {name}"),
             Suggestion::CaseSplit => write!(f, "case_split"),
+            Suggestion::Induct => write!(f, "induct"),
         }
     }
 }
@@ -233,6 +236,13 @@ impl<'k> Proof<'k> {
         self.apply(|goal| intro_forall(goal, name))
     }
 
+    /// `intro_individual name`: from `forall x:S. B`, leaves `B` with `x` renamed
+    /// to `name`. The name must not be free in the target, and no hypothesis may
+    /// mention it, so that the new binder cannot capture anything.
+    pub fn intro_individual(&mut self, name: &str) -> Result<(), TacticError> {
+        self.apply(|goal| intro_individual(goal, name))
+    }
+
     /// Closes the goal with a hypothesis of the same proposition.
     pub fn assumption(&mut self) -> Result<(), TacticError> {
         self.apply(assumption)
@@ -288,6 +298,16 @@ impl<'k> Proof<'k> {
     pub fn case_split(&mut self) -> Result<(), TacticError> {
         let kernel = self.kernel;
         self.apply(|goal| case_split(kernel, goal))
+    }
+
+    /// `induct`: from a goal `forall x:T. P` with `T` inductive, leaves one goal
+    /// per constructor `C`, namely `forall a0..an. (P[x := aj] for each recursive
+    /// aj) -> P[x := C(a0..an)]`. The hypotheses are part of the target, so each
+    /// case is closed by introducing the arguments with `intro_individual`, the
+    /// hypotheses with `intro`, and then the conclusion.
+    pub fn induct(&mut self) -> Result<(), TacticError> {
+        let kernel = self.kernel;
+        self.apply(|goal| induct(kernel, goal))
     }
 
     /// `rewrite_hyp name`: rewrites the goal with hypothesis `name : l = r`. The
@@ -352,7 +372,8 @@ impl<'k> Proof<'k> {
             Prop::Imp(_, _) => out.push(Suggestion::Intro),
             Prop::Forall(_, _) => out.push(Suggestion::IntroForall),
             Prop::ForallInd(_, sort, _) if self.kernel.constructors(sort).is_some() => {
-                out.push(Suggestion::CaseSplit)
+                out.push(Suggestion::CaseSplit);
+                out.push(Suggestion::Induct);
             }
             _ => {}
         }
@@ -477,7 +498,44 @@ fn apply_term(goal: &Goal, term: ProofTerm, prop: Prop) -> Result<Step, TacticEr
     })
 }
 
+fn intro_individual(goal: &Goal, name: &str) -> Result<Step, TacticError> {
+    let Prop::ForallInd(bound, sort, body) = &goal.target else {
+        return Err(TacticError::NotAnIndividualForall(goal.target.clone()));
+    };
+    if name != bound && body.has_free_individual(name) {
+        return Err(TacticError::NameClash(name.to_string()));
+    }
+    if goal
+        .hyps
+        .iter()
+        .any(|(_, prop)| prop.has_free_individual(name))
+    {
+        return Err(TacticError::VariableInHypothesis(name.to_string()));
+    }
+    let subgoal = Goal {
+        hyps: goal.hyps.clone(),
+        target: body.subst_individual(bound, &Term::var(name)),
+    };
+    let binder = name.to_string();
+    let sort = sort.clone();
+    Ok(Step {
+        subgoals: vec![subgoal],
+        build: Box::new(move |mut kids| ProofTerm::IndLam(binder, sort, Box::new(kids.remove(0)))),
+    })
+}
+
 fn case_split(kernel: &Kernel, goal: &Goal) -> Result<Step, TacticError> {
+    split(kernel, goal, false)
+}
+
+fn induct(kernel: &Kernel, goal: &Goal) -> Result<Step, TacticError> {
+    split(kernel, goal, true)
+}
+
+/// Splits a goal `forall x:T. P` over an inductive sort `T`: one subgoal per
+/// constructor, from [`Kernel::case_premise`], or from
+/// [`Kernel::induction_premise`] when `induction` is set.
+fn split(kernel: &Kernel, goal: &Goal, induction: bool) -> Result<Step, TacticError> {
     let Prop::ForallInd(variable, sort, motive) = &goal.target else {
         return Err(TacticError::NotAnIndividualForall(goal.target.clone()));
     };
@@ -493,9 +551,12 @@ fn case_split(kernel: &Kernel, goal: &Goal) -> Result<Step, TacticError> {
     }
     let mut subgoals = Vec::new();
     for (constructor, _) in constructors {
-        let target = kernel
-            .case_premise(variable, sort, motive, constructor)
-            .map_err(|_| TacticError::NotInductive(sort.clone()))?;
+        let premise = if induction {
+            kernel.induction_premise(variable, sort, motive, constructor)
+        } else {
+            kernel.case_premise(variable, sort, motive, constructor)
+        };
+        let target = premise.map_err(|_| TacticError::NotInductive(sort.clone()))?;
         subgoals.push(Goal {
             hyps: goal.hyps.clone(),
             target,
@@ -506,7 +567,13 @@ fn case_split(kernel: &Kernel, goal: &Goal) -> Result<Step, TacticError> {
     let motive = (**motive).clone();
     Ok(Step {
         subgoals,
-        build: Box::new(move |kids| ProofTerm::Cases(variable, sort, motive, kids)),
+        build: Box::new(move |kids| {
+            if induction {
+                ProofTerm::Induct(variable, sort, motive, kids)
+            } else {
+                ProofTerm::Cases(variable, sort, motive, kids)
+            }
+        }),
     })
 }
 

@@ -263,3 +263,18 @@ fn case_analysis_is_refused_rather_than_exported() {
         Err(ExportError::UnsupportedRule(_))
     ));
 }
+
+#[test]
+fn induction_is_refused_rather_than_exported() {
+    let kernel = Kernel::new();
+    let motive = eq(Term::var("x"), Term::var("x"));
+    let lemma = Lemma {
+        name: "by_induction".to_string(),
+        prop: Prop::forall_sorted("x", Sort::named("Nat"), motive.clone()),
+        proof: ProofTerm::Induct("x".to_string(), Sort::named("Nat"), motive, vec![]),
+    };
+    assert!(matches!(
+        export(&kernel, &[lemma]),
+        Err(ExportError::UnsupportedRule(_))
+    ));
+}

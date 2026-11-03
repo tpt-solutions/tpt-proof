@@ -24,6 +24,7 @@
 use std::collections::BTreeSet;
 use std::fmt;
 
+use tpt_proof_kernel::formula::Formula;
 use tpt_proof_kernel::{Kernel, KernelError, ProofTerm, Prop, Sort, Term};
 
 /// A theorem to save: its name, the claim, and the proof term that establishes it.
@@ -152,13 +153,15 @@ pub fn load(source: &str) -> Result<Kernel, LibraryError> {
 /// The declarations for the kernel's sorts, inductive types, symbols, and axioms,
 /// in an order that replays: every sort is declared before anything that uses it.
 fn environment(kernel: &Kernel) -> Vec<String> {
+    // The built-in integers are declared by every kernel, so they are not saved.
+    let builtin = Kernel::new();
     let mut lines = Vec::new();
     let mut known: BTreeSet<String> = BTreeSet::from([Sort::ind().0]);
     let mut pending = Vec::new();
     for name in kernel.sorts() {
         match kernel.constructors(&Sort::named(name)) {
             Some(constructors) => pending.push((name.to_string(), constructors.to_vec())),
-            None if name != Sort::ind().0 => {
+            None if name != Sort::ind().0 && !builtin.sorts().any(|sort| sort == name) => {
                 known.insert(name.to_string());
                 lines.push(format!("(sort {})", quote(name)));
             }
@@ -197,7 +200,7 @@ fn environment(kernel: &Kernel) -> Vec<String> {
     }
     for (name, args, result) in kernel.functions() {
         // Constructors are declared with their inductive type, not on their own.
-        if constructor_names.contains(name) {
+        if constructor_names.contains(name) || builtin.function_signature(name).is_some() {
             continue;
         }
         lines.push(format!(
@@ -208,6 +211,9 @@ fn environment(kernel: &Kernel) -> Vec<String> {
         ));
     }
     for (name, args) in kernel.predicates() {
+        if builtin.predicates().any(|(known, _)| known == name) {
+            continue;
+        }
         lines.push(format!("(predicate {} {})", quote(name), sort_list(args)));
     }
     for axiom in kernel.axioms() {
@@ -328,6 +334,32 @@ fn proof_text(term: &ProofTerm) -> String {
                 cases.join(" ")
             )
         }
+        ProofTerm::Induct(name, sort, motive, cases) => {
+            let cases: Vec<String> = cases.iter().map(proof_text).collect();
+            format!(
+                "(induct {} {} {} {})",
+                quote(name),
+                quote(&sort.0),
+                prop_text(motive),
+                cases.join(" ")
+            )
+        }
+        ProofTerm::Taut(formula) => format!("(taut {})", formula_text(formula)),
+    }
+}
+
+fn formula_text(formula: &Formula) -> String {
+    let parts = |items: &[Formula]| -> String {
+        items.iter().map(formula_text).collect::<Vec<_>>().join(" ")
+    };
+    match formula {
+        Formula::Atom(prop) => format!("(fatom {})", prop_text(prop)),
+        Formula::Const(value) => format!("(fconst {value})"),
+        Formula::Not(a) => format!("(fnot {})", formula_text(a)),
+        Formula::And(items) => format!("(fand {})", parts(items)),
+        Formula::Or(items) => format!("(for {})", parts(items)),
+        Formula::Imp(a, b) => format!("(fimp {} {})", formula_text(a), formula_text(b)),
+        Formula::Iff(a, b) => format!("(fiff {} {})", formula_text(a), formula_text(b)),
     }
 }
 
@@ -654,22 +686,73 @@ fn decode_proof(sexp: &Sexp) -> Result<ProofTerm, LibraryError> {
                 boxed(&items[4])?,
             ))
         }
-        "cases" => {
+        "cases" | "induct" => {
             let cases = rest(items, 4)
                 .iter()
                 .map(decode_proof)
                 .collect::<Result<Vec<_>, _>>()?;
             if items.len() < 4 {
-                return Err(malformed("`cases` takes a variable, a sort, and a motive"));
+                return Err(malformed(&format!(
+                    "`{head}` takes a variable, a sort, and a motive"
+                )));
             }
-            Ok(ProofTerm::Cases(
-                text_at(items, 1)?,
-                Sort::named(&text_at(items, 2)?),
-                decode_prop(&items[3])?,
-                cases,
-            ))
+            let name = text_at(items, 1)?;
+            let sort = Sort::named(&text_at(items, 2)?);
+            let motive = decode_prop(&items[3])?;
+            Ok(if head == "cases" {
+                ProofTerm::Cases(name, sort, motive, cases)
+            } else {
+                ProofTerm::Induct(name, sort, motive, cases)
+            })
+        }
+        "taut" => {
+            fixed(items, 1, head)?;
+            Ok(ProofTerm::Taut(decode_formula(&items[1])?))
         }
         other => Err(malformed(&format!("unknown proof form `{other}`"))),
+    }
+}
+
+fn decode_formula(sexp: &Sexp) -> Result<Formula, LibraryError> {
+    let items = list(sexp)?;
+    let head = word(items.first().ok_or_else(|| malformed("empty formula"))?)?;
+    let decode_all = |from: usize| -> Result<Vec<Formula>, LibraryError> {
+        rest(items, from).iter().map(decode_formula).collect()
+    };
+    match head {
+        "fatom" => {
+            fixed(items, 1, head)?;
+            Ok(Formula::Atom(decode_prop(&items[1])?))
+        }
+        "fconst" => {
+            fixed(items, 1, head)?;
+            match word(&items[1])? {
+                "true" => Ok(Formula::Const(true)),
+                "false" => Ok(Formula::Const(false)),
+                other => Err(malformed(&format!("unknown constant `{other}`"))),
+            }
+        }
+        "fnot" => {
+            fixed(items, 1, head)?;
+            Ok(Formula::Not(Box::new(decode_formula(&items[1])?)))
+        }
+        "fand" => Ok(Formula::And(decode_all(1)?)),
+        "for" => Ok(Formula::Or(decode_all(1)?)),
+        "fimp" => {
+            fixed(items, 2, head)?;
+            Ok(Formula::Imp(
+                Box::new(decode_formula(&items[1])?),
+                Box::new(decode_formula(&items[2])?),
+            ))
+        }
+        "fiff" => {
+            fixed(items, 2, head)?;
+            Ok(Formula::Iff(
+                Box::new(decode_formula(&items[1])?),
+                Box::new(decode_formula(&items[2])?),
+            ))
+        }
+        other => Err(malformed(&format!("unknown formula form `{other}`"))),
     }
 }
 

@@ -9,8 +9,12 @@
 //! - Inductive types are not exported as Lean `inductive` declarations. Their
 //!   constructors are uninterpreted symbols and their induction principle is
 //!   an exported axiom, so Lean does not check that the sort is free.
-//! - Case analysis on an inductive sort (`ProofTerm::Cases`) is rejected with
-//!   [`ExportError::UnsupportedRule`], because the sort has no Lean `casesOn`.
+//! - Case analysis and induction on an inductive sort (`ProofTerm::Cases` and
+//!   `ProofTerm::Induct`) are rejected with [`ExportError::UnsupportedRule`],
+//!   because the sort has no Lean `casesOn` or recursor in the export.
+//! - Tautologies (`ProofTerm::Taut`) are rejected with [`ExportError::UnsupportedRule`].
+//!   The kernel decides them with a truth table, which has no Lean counterpart
+//!   in this export, and the built-in integers are not exported as numerals.
 //! - Only the lemmas passed to [`export`] are exported. A proof may refer to an
 //!   earlier lemma, but not to a kernel theorem whose proof term is not given.
 
@@ -227,6 +231,12 @@ fn lean_proof(
                 "case analysis on an inductive sort".to_string(),
             ))
         }
+        ProofTerm::Induct(..) => {
+            return Err(ExportError::UnsupportedRule(
+                "induction on an inductive sort".to_string(),
+            ))
+        }
+        ProofTerm::Taut(_) => return Err(ExportError::UnsupportedRule("tautology".to_string())),
         ProofTerm::Leibniz(variable, motive, equation, proof) => format!(
             "(Eq.subst (motive := fun ({} : _) => {}) {} {})",
             quote("var", variable)?,

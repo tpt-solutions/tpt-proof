@@ -185,3 +185,120 @@ fn quotes_backslashes_and_newlines_in_justifications_survive() {
         "says \"hi\" \\ then\nnew line"
     );
 }
+
+#[test]
+fn an_induction_lemma_saves_and_loads() {
+    let mut kernel = Kernel::new();
+    kernel
+        .declare_inductive("Nat", &[("zero", vec![]), ("succ", vec![nat()])])
+        .expect("declare Nat");
+    kernel
+        .declare_function_sorted("f", vec![nat()], nat())
+        .expect("declare f");
+    let f = |t: Term| Term::app("f", vec![t]);
+    kernel
+        .declare_axiom(
+            "f_zero",
+            Prop::Eq(f(Term::constant("zero")), Term::constant("zero")),
+            "test axiom",
+        )
+        .expect("declare f_zero");
+    kernel
+        .declare_axiom(
+            "f_succ",
+            Prop::forall_sorted(
+                "n",
+                nat(),
+                Prop::Eq(
+                    f(Term::app("succ", vec![Term::var("n")])),
+                    f(Term::var("n")),
+                ),
+            ),
+            "test axiom",
+        )
+        .expect("declare f_succ");
+
+    let motive = Prop::Eq(f(Term::var("x")), Term::constant("zero"));
+    let lemma = Lemma {
+        name: "f_is_zero".to_string(),
+        prop: Prop::forall_sorted("x", nat(), motive.clone()),
+        proof: ProofTerm::Induct(
+            "x".to_string(),
+            nat(),
+            motive,
+            vec![
+                ProofTerm::Axiom("f_zero".to_string()),
+                ProofTerm::IndLam(
+                    "a0".to_string(),
+                    nat(),
+                    Box::new(ProofTerm::Lam(
+                        "ih".to_string(),
+                        Prop::Eq(f(Term::var("a0")), Term::constant("zero")),
+                        Box::new(ProofTerm::Trans(
+                            Box::new(ProofTerm::IndApp(
+                                Box::new(ProofTerm::Axiom("f_succ".to_string())),
+                                Term::var("a0"),
+                            )),
+                            Box::new(ProofTerm::Var("ih".to_string())),
+                        )),
+                    )),
+                ),
+            ],
+        ),
+    };
+    let text = save(&kernel, &[lemma]).expect("saves");
+    let loaded = load(&text).expect("loads");
+    assert!(loaded.theorem("f_is_zero").is_some());
+}
+
+#[test]
+fn tautologies_and_the_standard_integers_save_and_load() {
+    use tpt_proof_kernel::arith::INT;
+    use tpt_proof_kernel::axioms::declare_standard;
+    use tpt_proof_kernel::formula::Formula;
+
+    let mut kernel = Kernel::new();
+    declare_standard(&mut kernel).expect("declares the standard axioms");
+    kernel
+        .declare_function_sorted("x", vec![], Sort::named(INT))
+        .expect("declare x");
+    let le = Formula::Atom(Prop::Pred(
+        "<=".to_string(),
+        vec![Term::constant("x"), Term::constant("3")],
+    ));
+    // `x <= 3` or not, and the ground fact `2 + 3 = 5`.
+    let excluded_middle = Formula::Or(vec![le.clone(), Formula::Not(Box::new(le))]);
+    let sum = Formula::Atom(Prop::Eq(
+        Term::app("+", vec![Term::constant("2"), Term::constant("3")]),
+        Term::constant("5"),
+    ));
+    let lemmas = [
+        Lemma {
+            name: "excluded_middle".to_string(),
+            prop: excluded_middle.encode(),
+            proof: ProofTerm::Taut(excluded_middle),
+        },
+        Lemma {
+            name: "two_plus_three".to_string(),
+            prop: sum.encode(),
+            proof: ProofTerm::Taut(sum),
+        },
+    ];
+    let text = save(&kernel, &lemmas).expect("saves");
+
+    // The built-ins are declared by every kernel, so they are not written out.
+    assert!(!text.contains("(sort \"Int\")"), "{text}");
+    assert!(!text.contains("(function \"+\""), "{text}");
+    assert!(!text.contains("(predicate \"<=\""), "{text}");
+
+    let loaded = load(&text).expect("loads");
+    assert_eq!(
+        loaded.theorem("excluded_middle").map(|t| t.prop()),
+        Some(&lemmas[0].prop)
+    );
+    assert_eq!(
+        loaded.theorem("two_plus_three").map(|t| t.prop()),
+        Some(&lemmas[1].prop)
+    );
+    assert_eq!(loaded.axioms().count(), 8);
+}

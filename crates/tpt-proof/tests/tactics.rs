@@ -376,3 +376,114 @@ fn rewrite_needs_an_equation() {
         Err(TacticError::NotAnEquation(p_of(Term::constant("b"))))
     );
 }
+
+/// `Nat`, `f : Nat -> Nat`, `f(zero) = zero`, and `forall n. f(succ(n)) = f(n)`.
+fn induction_kernel() -> Kernel {
+    let mut kernel = nat_kernel();
+    kernel
+        .declare_function_sorted("f", vec![nat()], nat())
+        .expect("declare f");
+    kernel
+        .declare_axiom(
+            "f_zero",
+            Prop::Eq(
+                Term::app("f", vec![Term::constant("zero")]),
+                Term::constant("zero"),
+            ),
+            "test axiom",
+        )
+        .expect("declare f_zero");
+    kernel
+        .declare_axiom(
+            "f_succ",
+            Prop::forall_sorted(
+                "n",
+                nat(),
+                Prop::Eq(
+                    Term::app("f", vec![Term::app("succ", vec![Term::var("n")])]),
+                    Term::app("f", vec![Term::var("n")]),
+                ),
+            ),
+            "test axiom",
+        )
+        .expect("declare f_succ");
+    kernel
+}
+
+/// `forall x:Nat. f(x) = zero`, which needs induction.
+fn induction_target() -> Prop {
+    Prop::forall_sorted(
+        "x",
+        nat(),
+        Prop::Eq(Term::app("f", vec![Term::var("x")]), Term::constant("zero")),
+    )
+}
+
+#[test]
+fn induct_then_intro_and_exact_proves_a_claim_that_needs_the_hypothesis() {
+    let kernel = induction_kernel();
+    let mut proof = Proof::new(&kernel, induction_target());
+    proof.induct().expect("induct");
+    assert_eq!(proof.goals().len(), 2);
+
+    // The zero case.
+    proof
+        .exact(ProofTerm::Axiom("f_zero".to_string()))
+        .expect("zero case");
+
+    // The succ case: introduce the argument and its hypothesis, then conclude.
+    proof.intro_individual("a0").expect("intro_individual");
+    proof.intro("ih").expect("intro");
+    proof
+        .exact(ProofTerm::Trans(
+            Box::new(ProofTerm::IndApp(
+                Box::new(ProofTerm::Axiom("f_succ".to_string())),
+                Term::var("a0"),
+            )),
+            Box::new(ProofTerm::Var("ih".to_string())),
+        ))
+        .expect("succ case");
+
+    let thm = proof.qed().expect("kernel accepts the induction");
+    assert_eq!(thm.prop(), &induction_target());
+    assert!(thm.axioms().contains("f_succ"));
+}
+
+#[test]
+fn induct_is_suggested_alongside_case_split() {
+    let kernel = induction_kernel();
+    let proof = Proof::new(&kernel, induction_target());
+    let suggestions = proof.suggestions();
+    assert!(suggestions.contains(&Suggestion::Induct));
+    assert!(suggestions.contains(&Suggestion::CaseSplit));
+}
+
+#[test]
+fn induct_needs_an_inductive_sort() {
+    let kernel = induction_kernel();
+    let target = Prop::forall_ind("x", Prop::Eq(Term::var("x"), Term::var("x")));
+    let mut proof = Proof::new(&kernel, target);
+    assert_eq!(proof.induct(), Err(TacticError::NotInductive(Sort::ind())));
+}
+
+#[test]
+fn intro_individual_needs_a_forall_over_individuals() {
+    let kernel = induction_kernel();
+    let mut proof = Proof::new(&kernel, atom("A"));
+    assert_eq!(
+        proof.intro_individual("y"),
+        Err(TacticError::NotAnIndividualForall(atom("A")))
+    );
+}
+
+#[test]
+fn intro_individual_refuses_a_name_the_body_already_uses() {
+    let kernel = induction_kernel();
+    // The body mentions a free `y`, so renaming the bound `x` to `y` would capture it.
+    let target = Prop::forall_sorted("x", nat(), Prop::Eq(Term::var("x"), Term::var("y")));
+    let mut proof = Proof::new(&kernel, target);
+    assert_eq!(
+        proof.intro_individual("y"),
+        Err(TacticError::NameClash("y".to_string()))
+    );
+}
