@@ -3,6 +3,7 @@
 
 use std::collections::BTreeSet;
 
+use crate::arith;
 use crate::terms::{alpha_eq, ProofTerm, Prop, Sort, Term};
 use crate::{taut, Kernel, KernelError, Result};
 
@@ -75,6 +76,7 @@ pub(crate) fn infer(
         }
 
         ProofTerm::TyLam(name, body) => {
+            reject_reserved_binder(name)?;
             let body_prop = infer(kernel, ctx, body, deps)?;
             // Generalizing over `name` is only valid if nothing the body relies on
             // mentions `name`. Otherwise the proof would be specific to one choice.
@@ -97,6 +99,7 @@ pub(crate) fn infer(
         }
 
         ProofTerm::IndLam(name, sort, body) => {
+            reject_reserved_binder(name)?;
             kernel.check_sort(sort)?;
             ctx.individuals.push((name.clone(), sort.clone()));
             let body_prop = infer(kernel, ctx, body, deps);
@@ -323,6 +326,16 @@ fn check_split(
         prop.has_free_individual(n)
     })?;
     Ok(Prop::forall_sorted(variable, sort.clone(), motive.clone()))
+}
+
+/// Fails if `name` is a built-in name. Binding one would let a proof
+/// generalize over a symbol the rest of the kernel reads with a fixed meaning.
+fn reject_reserved_binder(name: &str) -> Result<()> {
+    if arith::is_reserved(name) {
+        Err(KernelError::ReservedSymbol(name.to_string()))
+    } else {
+        Ok(())
+    }
 }
 
 /// Fails if any axiom the proof uses mentions `name`, under `mentions`.

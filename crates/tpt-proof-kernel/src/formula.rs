@@ -21,7 +21,7 @@ use crate::terms::Prop;
 pub const FALSE: &str = "false";
 
 /// The propositional variable bound by the encodings of `and` and `or`.
-const BINDER: &str = "#r";
+pub(crate) const BINDER: &str = "#r";
 
 /// A Boolean formula over propositions. Its atoms are arbitrary propositions.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]

@@ -23,9 +23,11 @@ pub(crate) fn is_numeral(symbol: &str) -> bool {
         && (symbol == "0" || !symbol.starts_with('0'))
 }
 
-/// Whether `symbol` is a built-in name that user declarations cannot reuse.
+/// Whether `symbol` is a built-in name. User declarations cannot reuse it, and
+/// binders cannot bind it: `false` is the constant false to the tautology rule,
+/// and `#r` is the variable the encodings of `and` and `or` bind.
 pub(crate) fn is_reserved(symbol: &str) -> bool {
-    is_numeral(symbol)
+    is_numeral(symbol) || symbol == crate::formula::FALSE || symbol == crate::formula::BINDER
 }
 
 /// The value of a ground term, or `None` if it contains a variable, an

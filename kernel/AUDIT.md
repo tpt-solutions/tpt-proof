@@ -1,6 +1,6 @@
 # Kernel Audit
 
-Status: **not yet audited.** The kernel is in early Phase 1 (spec.txt §12).
+Status: **not yet audited.** The kernel has reached the Phase 1 milestone (it checks simple proofs, spec.txt §12) and has grown since; the change log below records each addition.
 
 The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel). This file tracks what has been reviewed and by whom.
 
@@ -84,6 +84,7 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 - 2026: added the built-in integers (`arith.rs`): sort `Int`, numerals (canonical decimal names, reserved), operations `+`, `-`, `*`, `neg`, predicates `<=` and `<`, and ground evaluation. The built-in names cannot be declared again (`KernelError::ReservedSymbol`). Reviewed scope: the evaluation.
 - 2026: added `axioms::declare_standard` with the eight integer axioms listed under Trusted axioms. Each is justified in its doc comment.
 - 2026: checks for the tautology rule. `tests/taut_property.rs` compares the kernel with an independent evaluator on 2,000 generated formulas. `tests/taut_lean.rs` (ignored; needs `lean`) compares the kernel with Lean 4 on 150 generated formulas, where Lean must prove what the kernel accepts and reject what it refuses. Neither check covers the encodings in `formula.rs`, which remain a review item.
+- 2026: fixed a soundness bug. The tautology rule reads the atom `false` as the constant false, but `TyLam` could bind `false`, so `forall false. (false -> q)` could be instantiated at `false -> false` and applied to prove any `q`. Reserved names (`false` and `#r`, plus numerals) are now rejected as propositional and individual binders in proofs, as binders in declared propositions (axioms and theorems; `#r` stays allowed there, since the encodings of `and` and `or` produce it), as atoms inside `Taut` (for `#r`), as function and predicate names, and as inductive constructors. Regression tests: `tests/reserved_names.rs`.
 
 ## Rules for changes
 

@@ -11,7 +11,7 @@
 //! [`crate::formula`] must be classically correct for this to be sound.
 
 use crate::arith::eval_atom;
-use crate::formula::Formula;
+use crate::formula::{Formula, BINDER};
 use crate::terms::alpha_eq;
 use crate::{Kernel, KernelError, Result};
 
@@ -24,6 +24,11 @@ pub(crate) fn check(kernel: &Kernel, formula: &Formula) -> Result<()> {
     formula.atoms(&mut atoms);
     for atom in &atoms {
         kernel.check_prop(atom, &[])?;
+        // The encodings bind `#r` around the whole formula, so an atom that
+        // mentions it would be captured and the encoding would not match.
+        if atom.has_free(BINDER) {
+            return Err(KernelError::ReservedSymbol(BINDER.to_string()));
+        }
     }
 
     let mut letters: Vec<&crate::terms::Prop> = Vec::new();

@@ -185,7 +185,7 @@ impl fmt::Display for KernelError {
                 taut::MAX_LETTERS
             ),
             KernelError::ReservedSymbol(name) => {
-                write!(f, "`{name}` is reserved by the built-in arithmetic")
+                write!(f, "`{name}` is a reserved name of the kernel")
             }
         }
     }
@@ -243,7 +243,8 @@ pub struct Kernel {
 
 impl Kernel {
     /// Creates a kernel with the default sort `Ind`, the built-in integer sort
-    /// and operations (see [`arith`]), and no axioms or theorems.
+    /// and operations (see [`arith`]), and no axioms or theorems. The logic is
+    /// classical without an axiom: the tautology rule is a primitive rule.
     pub fn new() -> Self {
         let mut kernel = Kernel::default();
         kernel.sorts.insert(Sort::ind().0);
@@ -403,6 +404,9 @@ impl Kernel {
         let sort = Sort::named(name);
         let mut seen = BTreeSet::new();
         for (constructor, args) in constructors {
+            if arith::is_reserved(constructor) {
+                return Err(KernelError::ReservedSymbol(constructor.to_string()));
+            }
             if !seen.insert(*constructor) || self.functions.contains_key(*constructor) {
                 return Err(KernelError::DuplicateName(constructor.to_string()));
             }
@@ -883,8 +887,17 @@ impl Kernel {
                 self.check_prop(a, scope)?;
                 self.check_prop(b, scope)
             }
-            Prop::Forall(_, body) => self.check_prop(body, scope),
+            Prop::Forall(name, body) => {
+                // `#r` is allowed: the encodings of `and` and `or` bind it.
+                if name == formula::FALSE || arith::is_numeral(name) {
+                    return Err(KernelError::ReservedSymbol(name.clone()));
+                }
+                self.check_prop(body, scope)
+            }
             Prop::ForallInd(name, sort, body) => {
+                if arith::is_reserved(name) {
+                    return Err(KernelError::ReservedSymbol(name.clone()));
+                }
                 self.check_sort(sort)?;
                 let mut inner = scope.to_vec();
                 inner.push((name.clone(), sort.clone()));
