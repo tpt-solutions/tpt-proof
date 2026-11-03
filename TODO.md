@@ -64,7 +64,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] Trusted axioms (`axioms.rs`): eight integer axioms over `Int`, declared by `axioms::declare_standard`. Logic is not axioms: the tautology rule (`Taut`) is a trusted primitive, and equality is primitive. Bounded arithmetic with modular ops is not built; the VCs use unbounded `Int`, so the axioms are over `Int`. Listed in `kernel/AUDIT.md`.
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem
-- [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (declare_axiom, declare_theorem, check_proof, assume, declare_inductive, and define_function done; define_function is non-recursive and conservative, recursion goes through `define_by_recursion`)
+- [x] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (declare_axiom, declare_theorem, check_proof, assume, declare_inductive, and define_function done; define_function is non-recursive and conservative, recursion goes through `define_by_recursion`)
 - [x] Unit tests, property-based tests, and negative tests (bogus proofs must be rejected)
 - [x] Enforce <5,000 LOC and zero deps in CI
 - [x] `AUDIT.md` (scope, reviewers, status)
@@ -151,3 +151,49 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] Benchmarks (target: seconds for most verification) (kernel and contract-level Z3 timings in docs/benchmarks.md; translator-fixture and end-to-end timings pending)
 - [ ] User docs, tutorials, error-message quality
 - [ ] Success-criteria review (spec section 14)
+
+## Review follow-ups (from the platform review)
+
+Ordered by priority. Do the soundness items before anything else.
+
+### Soundness and bugs
+
+- [x] **P0: reserved atoms can be bound.** Fixed: `false` and `#r` are rejected as `TyLam`/`IndLam` binders, as `Taut` atoms (for `#r`), and as declared symbols; numerals as constructors too. Regression tests in `tests/reserved_names.rs`; `kernel/AUDIT.md` updated. `false` (`formula.rs`) and `#r` are ordinary atoms, but `TyLam`/`TyApp` bind and substitute by name, so `Taut(false -> q)` generalized over `false` can prove an arbitrary `q`. Write the failing kernel test first, then reject `false` and `#r` as `TyLam`/`IndLam` binder names and as user atoms (extend `arith::is_reserved`). Add a reflect-side test for a VC variable named `false`. Update `kernel/AUDIT.md`.
+- [x] `declare_inductive` has no `is_reserved` check: a constructor named `"0"` is shadowed by the Int numeral path.
+- [ ] `smt::verify` re-runs Z3 on `sat` and bypasses the VC cache. Decided: leave the re-run; caching `Verified` on disk would make it forgeable. Open: the driver uses `VcCache::check`, not `verify`, so this affects only the proof path. Caching `Verified` on disk would let anyone who can write the cache directory forge it, so that is a maintainer decision; the `sat` re-run is left as is.
+- [x] `run_solver` relies on `z3 -t:` only; add a wall-clock kill so a hung z3 cannot block. Done: the solver is polled and killed after its timeout plus 5 s, and reported as `Timeout`. Test: `a_solver_that_hangs_is_killed_and_reported_as_a_timeout`.
+- [x] `Taut` checks atoms with an empty scope, so it cannot be used under `IndLam`/`Cases` binders; `MAX_LETTERS = 16` may reject large reflected proofs. Decided: keep 16 and document the scope limit in `docs/kernel-logic.md`. A scoped variant is not added until a proof needs one.
+- [x] Switch the MIR driver from `check` to `verify` so it can report kernel-checked results. Decided: the default stays `check` (proof mode is slower and bypasses the cache); kernel-checked results are opt-in with `TPT_PROOF_VERIFY=1`.
+- [x] Docs drift: README still says "design phase, nothing verified"; `kernel/AUDIT.md` says "early Phase 1"; `docs/kernel-logic.md` omits `Taut`, classical logic, `Int` and `Induct`; `docs/design-induct.md` gives the wrong kernel line count; `tpt-proof-kernel` `lib.rs` says "no axioms" but the kernel is classical; the "Kernel API" box in Phase 1 is unchecked though its notes say done.
+
+### Usability and automation
+
+- [x] README quickstart: install Z3 and the pinned nightly, build the driver, run `tpt-proof verify` on a fixture, read the output
+- [ ] CLI: `--help`, `--json`, `--timeout`, `--z3-path` / `TPT_PROOF_Z3` done (the CLI passes them to the driver as `TPT_PROOF_FORMAT=json`, `TPT_PROOF_TIMEOUT_MS` and `TPT_PROOF_Z3`). Open: SARIF output, `--verbose`
+- [ ] CLI subcommands: `export` (Lean), `report` (dependency report), `doctor` (check z3, rustup, nightly, driver, lean and print fixes) done, as `tpt-proof export <library>`, `report <library>` and `doctor`. Open: `install` (build the pinned driver)
+- [ ] MIR driver diagnostics with source spans (today: function names only)
+- [ ] `cargo tpt-proof` subcommand and package-level verification (today: single files)
+- [x] Shared tool-detection helper: Z3 and Lean tests skip with a message instead of `#[ignore]` or hard-failing. The helper is `tests-support/tools.rs`, included by each test crate with `#[path]` because the kernel cannot take a dev-dependency.
+- [ ] CI: jobs with Z3 and the pinned nightly that build and test `tpt-proof-mir` and `examples/filesystem` and run the `--ignored` tests; add Windows, docs build and MSRV jobs
+- [ ] `Prop` parser or `prop!` macro (reuse `tpt-proof-contract` `spec.rs`)
+- [ ] `auto`/`tauto` tactic wrapping the `Taut` rule; the `simplify` tactic. `tauto` is done (`Proof::tauto`, for goals and hypotheses built from implications, `false` and atoms). `auto` and `simplify` are open.
+- [x] Re-export tactics, `library` and `invariant` from the facade prelude
+- [ ] Packaging: CHANGELOG (started, `CHANGELOG.md`), Cargo metadata (`repository`, `readme`, `keywords`, `categories`), decide on `publish = false`, reserve crates.io names, prebuilt driver binaries
+
+### Examples and templates
+
+- [x] `crates/tpt-proof/examples/first_proof.rs` (kernel setup, tactics, `qed`, dependency report, Lean export; its Lean output is checked by `lean`) and `induction.rs` (addition by recursion, then induction; not exported to Lean, which does not translate induction yet)
+- [ ] Verified-Rust gallery built from the MIR fixtures (`clamp`, `safe_div`, `binary_search`, `ring_buffer`), each with expected CLI output and a note on reading the counterexample
+- [ ] `cargo generate` template (`templates/verified-crate`): macros, toolchain pin, CI workflow, example contract, pre-commit hook
+- [ ] GitHub Action `tpt-proof/verify` and a pre-commit hook
+- [ ] Finish the mdBook: tutorial (contract, counterexample, fix, kernel-checked), cookbook, "what is trusted" page
+- [ ] VS Code extension: verify on save, SARIF diagnostics inline
+
+### Ideas
+
+- [ ] Counterexample-to-test: turn a Z3 counterexample into a ready-to-run `#[test]` (builds on `tpt_proof_runtime::replay`)
+- [ ] Proof certificate bundles: standalone kernel proof term plus Lean export that a third party re-checks without trusting the solver, with a per-crate TCB report
+- [ ] Property-test fallback: generate a proptest for VCs that are unprovable or unsupported
+- [ ] Incremental verification keyed by function hash, with the VC cache shared across CI runs
+- [ ] Suggest `requires` clauses from counterexamples
+- [ ] Per-function assurance badge (proved, kernel-checked, runtime-checked, unsupported)

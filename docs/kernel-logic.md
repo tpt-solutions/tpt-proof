@@ -72,7 +72,7 @@ The side condition on ALL-INTRO is what keeps quantification sound. The proof ma
 ## Soundness argument (informal)
 
 1. Every `Theorem` value is produced by `check`, the only constructor, which applies the rules above.
-2. The rules are the standard natural-deduction rules for implication, restricted to the simply-typed fragment. Each rule preserves truth when its premises hold.
+2. The rules are the standard natural-deduction rules for implication and quantification, with the equality, individual, and inductive rules above. Each rule preserves truth when its premises hold. The tautology rule is the one trusted primitive beyond these, and it makes the logic classical (see the section on it).
 3. Axioms and assumptions are the only non-derived facts. Their names appear in every dependent theorem, so a theorem depending on `D` is valid whenever the axioms in `D` are.
 
 Formal proof of (2) and (3) is the Phase 8 target (`proofs/kernel_soundness`).
@@ -138,10 +138,29 @@ Structural recursion: `define_by_recursion(f, T, R, cases)` defines `f : T -> R`
 
 This is a conservative extension. Each equation fixes `f` on one constructor, and every recursive call is on a structurally smaller argument, so it adds no contradiction. A model is the term algebra of the constructors, which satisfies every equation, so the extension is consistent without the induction assumption. A rejected definition is rolled back and leaves no symbol behind.
 
+## Leibniz substitution, case analysis, and induction
+
+These are primitive rules of the checker, not axioms.
+
+- **Leibniz** (`Leibniz`): from `t = s` and a motive `P[x := t]` that matches exactly, derive `P[x := s]`. It uses only the equality rules above.
+- **Cases** and **Induct** (`Cases`, `Induct`): on a declared inductive sort `T`, one premise per constructor `C(a1..an)`. `Cases` gives no hypotheses for recursive arguments. `Induct` gives a hypothesis `P(aj)` for each recursive `aj`. The conclusion is `forall x:T. P(x)`, and the side condition of IND-INTRO applies. Both are sound only under the trust assumption above, that `T` is generated freely by its constructors.
+
+## The tautology rule and classical logic
+
+`Taut(F)` proves a formula `F` built from atoms, `false`, and `true` with `not`, `and`, `or`, `iff`, and `->`. The kernel first encodes `F` as a proposition: `not a` is `a -> false`, `and` and `or` are second-order encodings over a bound variable `#r`, and `iff` is two implications. It then accepts `F` only when a truth table over the letters of `F` makes it true. A letter is a non-ground atom. A ground atom is evaluated with the built-in integers, and the atom `false` is the constant false.
+
+The rule makes the logic classical: `not not a -> a` is accepted with no excluded-middle axiom. It is trusted, together with the encodings and the integer evaluation. A formula may have at most 16 letters. Its atoms are checked with no individual variables in scope, so `Taut` cannot be used under an individual binder (`IndLam`, or a `Cases` or `Induct` premise that refers to the bound variable); instantiate the binder first, then apply the rule. This is a limit on what is accepted, not a gap in soundness.
+
+The truth table must not be fooled by binders. The atom `false` and the name `#r` are reserved, so a proof cannot generalize over them (`TyLam`, `IndLam`), and a `Taut` atom cannot mention `#r`. Without these checks, `forall false. (false -> q)` could be instantiated at a true proposition and yield `q`. Numerals and the other built-in names are also reserved, and cannot be declared as symbols or constructors.
+
+## Built-in integers
+
+The sort `Int`, the numerals, `+`, `-`, `*`, `neg`, `<=`, and `<` are declared by the kernel with their usual meaning, and no axioms about them are declared. `axioms::declare_standard` adds a fixed list of integer axioms, and a caller opts in to them. The axioms are listed in `kernel/AUDIT.md`.
+
 ## Not yet in the logic
 
-- Pattern matching beyond one recursive argument, and termination checking beyond structural recursion
-- Leibniz substitution (`P(t)` and `t = s` give `P(s)`), which needs predicate variables
 - Termination checking beyond structural recursion
+- Bounded (modular) integer arithmetic
+- Rust-semantics axioms
 
 Each needs its own rules here before it is implemented.

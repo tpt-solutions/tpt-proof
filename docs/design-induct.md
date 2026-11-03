@@ -61,7 +61,7 @@ The checker applies the same generalization side condition as `IndLam` and `Case
    - A check that `induction_premise` avoids capturing a free individual of `P`.
 5. The Lean export refuses `Induct` with `ExportError::UnsupportedRule`, as it does for `Cases`. An inductive sort has no Lean `casesOn` or recursor in the export, so the rule cannot be translated.
 
-Trusted-base size: roughly 100 new lines in the kernel, which is well inside the 5,000-line budget. The kernel is currently about 1,670 lines.
+Trusted-base size: roughly 100 new lines in the kernel, which is well inside the 5,000-line budget. The kernel was about 1,670 lines when this was written. It is about 2,200 lines now, and the budget is still met.
 
 ## Facade: the `induct` tactic
 
