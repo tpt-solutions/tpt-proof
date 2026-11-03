@@ -488,6 +488,9 @@ version = "0.0.1"
 [[package]]
 name = "tpt-proof-contract"
 version = "0.0.1"
+dependencies = [
+ "tpt-proof-kernel",
+]
 
 [[package]]
 name = "tpt-proof-core"

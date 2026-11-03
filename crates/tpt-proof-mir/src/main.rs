@@ -2,7 +2,9 @@
 //! supported subset to verification conditions, and checks them with Z3.
 //!
 //! A result of "proved" means Z3 reported `unsat` for the negated VC. It is not
-//! yet a kernel-checked proof (spec.txt §2, Principle 5).
+//! a kernel-checked proof unless `TPT_PROOF_VERIFY=1` is set: then Z3 is asked for
+//! a proof, the kernel checks it, and "proved (kernel-checked)" is reported
+//! (spec.txt §2, Principle 5). Proof mode bypasses the VC cache.
 //!
 //! The exit status is 0 only if every VC is proved and every function is in the
 //! supported subset. Anything else exits with 1, so a failed or unverified function
@@ -21,7 +23,7 @@ use rustc_hir::def::DefKind;
 use rustc_interface::interface::Compiler;
 use rustc_middle::ty::TyCtxt;
 use tpt_proof_contract::cache::VcCache;
-use tpt_proof_contract::smt::counterexample_values;
+use tpt_proof_contract::smt::{counterexample_values, verify};
 use tpt_proof_contract::{Outcome, SolverConfig};
 use tpt_proof_mir::translate::translate;
 
@@ -29,6 +31,7 @@ use tpt_proof_mir::translate::translate;
 struct Verify {
     not_proved: usize,
     cache: VcCache,
+    proof_mode: bool,
 }
 
 impl Callbacks for Verify {
@@ -48,13 +51,21 @@ impl Callbacks for Verify {
                 Ok(vcs) if vcs.is_empty() => println!("{name}: no assertions"),
                 Ok(vcs) => {
                     for vc in &vcs {
-                        let outcome = self.cache.check(vc, &config);
-                        if !matches!(outcome, Outcome::SolverUnsat) {
+                        let outcome = if self.proof_mode {
+                            verify(vc, &config)
+                        } else {
+                            self.cache.check(vc, &config)
+                        };
+                        if !matches!(outcome, Outcome::SolverUnsat | Outcome::Verified) {
                             self.not_proved += 1;
                         }
                         let verdict = match outcome {
                             Outcome::SolverUnsat => {
                                 "proved (solver unsat, not kernel-checked)".to_string()
+                            }
+                            Outcome::Verified => "proved (kernel-checked)".to_string(),
+                            Outcome::Unchecked { reason } => {
+                                format!("unchecked (solver unsat, proof not accepted): {reason}")
                             }
                             Outcome::Failed { counterexample } => {
                                 let values: Vec<String> = counterexample_values(&counterexample)
@@ -93,12 +104,14 @@ fn main() {
         Ok(directory) => VcCache::in_directory(directory).unwrap_or_else(|_| VcCache::in_memory()),
         Err(_) => VcCache::in_memory(),
     };
-    let mut verify = Verify {
+    let proof_mode = std::env::var("TPT_PROOF_VERIFY").is_ok_and(|value| value == "1");
+    let mut driver = Verify {
         not_proved: 0,
         cache,
+        proof_mode,
     };
-    rustc_driver::compiler_entrypoint(&compiler_args, &mut verify);
-    if verify.not_proved > 0 {
+    rustc_driver::compiler_entrypoint(&compiler_args, &mut driver);
+    if driver.not_proved > 0 {
         std::process::exit(1);
     }
 }

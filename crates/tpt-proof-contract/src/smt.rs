@@ -9,6 +9,7 @@ use std::io::Write as _;
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
 
+use crate::reflect;
 use crate::vc::{Expr, Sort, Vc};
 use crate::Outcome;
 
@@ -45,6 +46,16 @@ impl std::error::Error for EncodeError {}
 /// Checks the VC, then encodes it as an SMT-LIB 2 script. The script asserts the
 /// assumptions and the negated goal, so `unsat` means the goal is valid.
 pub fn encode(vc: &Vc) -> Result<String, EncodeError> {
+    render_script(vc, false)
+}
+
+/// Like [`encode`], but the script asks Z3 for a proof of `unsat` instead of a
+/// model. The proof is checked by [`crate::reflect::reconstruct`].
+pub fn encode_with_proof(vc: &Vc) -> Result<String, EncodeError> {
+    render_script(vc, true)
+}
+
+fn render_script(vc: &Vc, proof: bool) -> Result<String, EncodeError> {
     let mut env: Vec<(&str, Sort)> = Vec::new();
     for (name, sort) in &vc.vars {
         if !is_simple_symbol(name) {
@@ -57,7 +68,11 @@ pub fn encode(vc: &Vc) -> Result<String, EncodeError> {
     }
     expect_sort(&vc.goal, Sort::Bool, &env)?;
 
-    let mut script = String::from("(set-logic ALL)\n");
+    let mut script = String::new();
+    if proof {
+        script.push_str("(set-option :produce-proofs true)\n");
+    }
+    script.push_str("(set-logic ALL)\n");
     for (name, sort) in &vc.vars {
         let sort = match sort {
             Sort::Int => "Int",
@@ -69,7 +84,11 @@ pub fn encode(vc: &Vc) -> Result<String, EncodeError> {
         script.push_str(&format!("(assert {})\n", render(assumption)));
     }
     script.push_str(&format!("(assert (not {}))\n", render(&vc.goal)));
-    script.push_str("(check-sat)\n(get-model)\n");
+    if proof {
+        script.push_str("(check-sat)\n(get-proof)\n");
+    } else {
+        script.push_str("(check-sat)\n(get-model)\n");
+    }
     Ok(script)
 }
 
@@ -204,6 +223,41 @@ pub fn check(vc: &Vc, config: &SolverConfig) -> Outcome {
         Ok(script) => script,
         Err(err) => return Outcome::Error(err.to_string()),
     };
+    match run_solver(&script, config) {
+        Ok(stdout) => parse_output(&stdout),
+        Err(reason) => Outcome::Error(reason),
+    }
+}
+
+/// Like [`check`], but the solver is asked for a proof and the kernel checks it.
+///
+/// The answer is [`Outcome::Verified`] only when the kernel accepts the proof
+/// of the VC. If the solver says `unsat` but the proof cannot be checked, the
+/// answer is [`Outcome::Unchecked`] with the reason. A counterexample is found
+/// by [`check`], because proofs do not come with models.
+pub fn verify(vc: &Vc, config: &SolverConfig) -> Outcome {
+    let script = match encode_with_proof(vc) {
+        Ok(script) => script,
+        Err(err) => return Outcome::Error(err.to_string()),
+    };
+    let stdout = match run_solver(&script, config) {
+        Ok(stdout) => stdout,
+        Err(reason) => return Outcome::Error(reason),
+    };
+    match stdout.lines().next().unwrap_or("").trim() {
+        "unsat" => match reflect::reconstruct(vc, &stdout) {
+            Ok(_) => Outcome::Verified,
+            Err(err) => Outcome::Unchecked {
+                reason: err.to_string(),
+            },
+        },
+        "sat" => check(vc, config),
+        _ => parse_output(&stdout),
+    }
+}
+
+/// Runs the solver on `script` and returns its standard output.
+fn run_solver(script: &str, config: &SolverConfig) -> Result<String, String> {
     let child = Command::new(&config.z3)
         .arg("-in")
         .arg(format!("-t:{}", config.timeout_ms))
@@ -213,18 +267,16 @@ pub fn check(vc: &Vc, config: &SolverConfig) -> Outcome {
         .spawn();
     let mut child = match child {
         Ok(child) => child,
-        Err(err) => {
-            return Outcome::Error(format!("could not start `{}`: {err}", config.z3.display()))
-        }
+        Err(err) => return Err(format!("could not start `{}`: {err}", config.z3.display())),
     };
     if let Some(mut stdin) = child.stdin.take() {
         if let Err(err) = stdin.write_all(script.as_bytes()) {
-            return Outcome::Error(format!("could not send the script to z3: {err}"));
+            return Err(format!("could not send the script to z3: {err}"));
         }
     }
     match child.wait_with_output() {
-        Ok(output) => parse_output(&String::from_utf8_lossy(&output.stdout)),
-        Err(err) => Outcome::Error(format!("z3 failed: {err}")),
+        Ok(output) => Ok(String::from_utf8_lossy(&output.stdout).into_owned()),
+        Err(err) => Err(format!("z3 failed: {err}")),
     }
 }
 
@@ -388,12 +440,12 @@ mod tests {
 
 /// A parsed solver term: an atom or a parenthesised list.
 #[derive(Debug, Clone, PartialEq, Eq)]
-enum Sexp {
+pub(crate) enum Sexp {
     Atom(String),
     List(Vec<Sexp>),
 }
 
-fn parse_sexps(text: &str) -> Vec<Sexp> {
+pub(crate) fn parse_sexps(text: &str) -> Vec<Sexp> {
     let mut stack: Vec<Vec<Sexp>> = vec![Vec::new()];
     let mut atom = String::new();
     let flush = |atom: &mut String, stack: &mut Vec<Vec<Sexp>>| {

@@ -8,5 +8,8 @@ license.workspace = true
 authors.workspace = true
 publish.workspace = true
 
+[dependencies]
+tpt-proof-kernel = { version = "0.0.1", path = "../tpt-proof-kernel" }
+
 [lints]
 workspace = true
