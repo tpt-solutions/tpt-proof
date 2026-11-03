@@ -3,6 +3,9 @@
 //! The fixture tests use a proof captured from Z3 5.3.3, so they run without a
 //! solver. The ignored tests call `z3` the same way the solver tests do.
 
+#[path = "../../../tests-support/tools.rs"]
+mod tools;
+
 use tpt_proof_contract::reflect::{reconstruct, ReflectError};
 use tpt_proof_contract::{verify, Expr, Outcome, SolverConfig, Sort, Vc};
 
@@ -95,15 +98,19 @@ fn output_without_a_proof_is_malformed() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn verify_proves_a_valid_vc_through_the_kernel() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     let outcome = verify(&bounded_sum_vc(), &SolverConfig::default());
     assert_eq!(outcome, Outcome::Verified, "got {outcome:?}");
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn verify_finds_a_counterexample_to_a_false_vc() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     let vc = Vc {
         name: "false claim".to_string(),
         vars: vec![("x".to_string(), Sort::Int)],
@@ -117,8 +124,10 @@ fn verify_finds_a_counterexample_to_a_false_vc() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn verify_proves_a_propositional_vc_through_the_kernel() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     // Assumptions: `p` and `p implies q`. Goal: `q`.
     let p = var("p");
     let vc = Vc {
@@ -140,8 +149,10 @@ fn eq(a: Expr, b: Expr) -> Expr {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn verify_proves_a_conjunct_through_the_kernel() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     let vc = Vc {
         name: "conjunction".to_string(),
         vars: vec![("p".to_string(), Sort::Bool), ("q".to_string(), Sort::Bool)],
@@ -152,8 +163,10 @@ fn verify_proves_a_conjunct_through_the_kernel() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn verify_proves_congruence_of_addition_through_the_kernel() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     let vc = Vc {
         name: "congruence".to_string(),
         vars: vec![("x".to_string(), Sort::Int), ("y".to_string(), Sort::Int)],
@@ -164,8 +177,10 @@ fn verify_proves_congruence_of_addition_through_the_kernel() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn verify_proves_a_negated_comparison_through_the_kernel() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     let vc = Vc {
         name: "negated comparison".to_string(),
         vars: vec![("x".to_string(), Sort::Int)],
@@ -176,8 +191,10 @@ fn verify_proves_a_negated_comparison_through_the_kernel() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn a_vc_that_needs_a_farkas_certificate_is_unchecked_not_verified() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     // Z3 proves this with a `th-lemma` (Farkas) step, which is not reconstructed
     // yet, so the answer must not be `Verified`.
     let vc = Vc {
@@ -193,8 +210,10 @@ fn a_vc_that_needs_a_farkas_certificate_is_unchecked_not_verified() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn a_one_item_conjunction_matches_the_solvers_form() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     // The translator builds `And([p])`, which the solver prints as `p`.
     let vc = Vc {
         name: "unit conjunction".to_string(),
@@ -206,8 +225,10 @@ fn a_one_item_conjunction_matches_the_solvers_form() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn a_comparison_whose_only_changed_argument_is_not_the_first() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     // `100 <= x + 100` and `100 <= 100 + x` differ in one argument of the sum,
     // which is not the first argument of the comparison. Z3 also normalizes the
     // comparison, which is not reconstructed yet, so this VC is not expected to

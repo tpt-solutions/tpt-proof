@@ -5,9 +5,11 @@
 //! [`crate::Outcome::SolverUnsat`] is not `Verified`.
 
 use std::fmt;
-use std::io::Write as _;
+use std::io::{Read as _, Write as _};
 use std::path::PathBuf;
 use std::process::{Command, Stdio};
+use std::thread;
+use std::time::{Duration, Instant};
 
 use crate::reflect;
 use crate::vc::{Expr, Sort, Vc};
@@ -206,6 +208,29 @@ pub struct SolverConfig {
     pub timeout_ms: u64,
 }
 
+impl SolverConfig {
+    /// The configuration named by `TPT_PROOF_Z3` (the solver path) and
+    /// `TPT_PROOF_TIMEOUT_MS` (the timeout), with the defaults for unset names.
+    /// `lookup` reads a variable, so the function needs no process environment.
+    pub fn from_lookup(lookup: impl Fn(&str) -> Option<String>) -> Result<SolverConfig, String> {
+        let mut config = SolverConfig::default();
+        if let Some(path) = lookup("TPT_PROOF_Z3") {
+            config.z3 = PathBuf::from(path);
+        }
+        if let Some(text) = lookup("TPT_PROOF_TIMEOUT_MS") {
+            config.timeout_ms = match text.trim().parse::<u64>() {
+                Ok(ms) if ms > 0 => ms,
+                _ => {
+                    return Err(format!(
+                        "TPT_PROOF_TIMEOUT_MS must be a positive whole number of milliseconds, got `{text}`"
+                    ))
+                }
+            };
+        }
+        Ok(config)
+    }
+}
+
 impl Default for SolverConfig {
     fn default() -> Self {
         SolverConfig {
@@ -225,7 +250,7 @@ pub fn check(vc: &Vc, config: &SolverConfig) -> Outcome {
     };
     match run_solver(&script, config) {
         Ok(stdout) => parse_output(&stdout),
-        Err(reason) => Outcome::Error(reason),
+        Err(outcome) => outcome,
     }
 }
 
@@ -242,7 +267,7 @@ pub fn verify(vc: &Vc, config: &SolverConfig) -> Outcome {
     };
     let stdout = match run_solver(&script, config) {
         Ok(stdout) => stdout,
-        Err(reason) => return Outcome::Error(reason),
+        Err(outcome) => return outcome,
     };
     match stdout.lines().next().unwrap_or("").trim() {
         "unsat" => match reflect::reconstruct(vc, &stdout) {
@@ -256,27 +281,76 @@ pub fn verify(vc: &Vc, config: &SolverConfig) -> Outcome {
     }
 }
 
-/// Runs the solver on `script` and returns its standard output.
-fn run_solver(script: &str, config: &SolverConfig) -> Result<String, String> {
-    let child = Command::new(&config.z3)
+/// Extra time past the solver's own timeout before the process is killed. `-t:`
+/// bounds Z3's search, not its startup or a loop that never checks the clock.
+const KILL_GRACE: Duration = Duration::from_secs(5);
+
+/// How often the driver checks whether the solver has exited.
+const POLL: Duration = Duration::from_millis(5);
+
+/// Runs the solver on `script` and returns its standard output. A solver that
+/// runs past its timeout plus [`KILL_GRACE`] is killed and reported as
+/// [`Outcome::Timeout`]. Any other failure to run it is an [`Outcome::Error`].
+fn run_solver(script: &str, config: &SolverConfig) -> Result<String, Outcome> {
+    let mut child = Command::new(&config.z3)
         .arg("-in")
         .arg(format!("-t:{}", config.timeout_ms))
         .stdin(Stdio::piped())
         .stdout(Stdio::piped())
-        .stderr(Stdio::piped())
-        .spawn();
-    let mut child = match child {
-        Ok(child) => child,
-        Err(err) => return Err(format!("could not start `{}`: {err}", config.z3.display())),
-    };
-    if let Some(mut stdin) = child.stdin.take() {
-        if let Err(err) = stdin.write_all(script.as_bytes()) {
-            return Err(format!("could not send the script to z3: {err}"));
+        .stderr(Stdio::null())
+        .spawn()
+        .map_err(|err| {
+            Outcome::Error(format!("could not start `{}`: {err}", config.z3.display()))
+        })?;
+
+    // The pipes are served by their own threads, so that a solver which stops
+    // reading or writing cannot block the driver.
+    let stdin = child.stdin.take();
+    let script = script.to_string();
+    let writer = thread::spawn(move || match stdin {
+        Some(mut stdin) => stdin.write_all(script.as_bytes()),
+        None => Ok(()),
+    });
+    let stdout = child.stdout.take();
+    let reader = thread::spawn(move || {
+        let mut text = String::new();
+        match stdout {
+            Some(mut stdout) => stdout.read_to_string(&mut text).map(|_| text),
+            None => Ok(text),
+        }
+    });
+
+    let deadline = Instant::now() + Duration::from_millis(config.timeout_ms) + KILL_GRACE;
+    loop {
+        match child.try_wait() {
+            Ok(Some(_)) => break,
+            Ok(None) if Instant::now() < deadline => thread::sleep(POLL),
+            Ok(None) => {
+                // Killing the process closes its pipes, which ends both threads.
+                let _ = child.kill();
+                let _ = child.wait();
+                return Err(Outcome::Timeout);
+            }
+            Err(err) => {
+                let _ = child.kill();
+                return Err(Outcome::Error(format!("z3 failed: {err}")));
+            }
         }
     }
-    match child.wait_with_output() {
-        Ok(output) => Ok(String::from_utf8_lossy(&output.stdout).into_owned()),
-        Err(err) => Err(format!("z3 failed: {err}")),
+
+    match writer.join() {
+        Ok(Ok(())) => {}
+        Ok(Err(err)) => {
+            return Err(Outcome::Error(format!(
+                "could not send the script to z3: {err}"
+            )))
+        }
+        Err(_) => return Err(Outcome::Error("the script writer panicked".to_string())),
+    }
+    match reader.join() {
+        Ok(Ok(text)) => Ok(text),
+        Ok(Err(err)) => Err(Outcome::Error(format!("z3 failed: {err}"))),
+        Err(_) => Err(Outcome::Error("the output reader panicked".to_string())),
     }
 }
 
@@ -297,8 +371,15 @@ pub fn parse_output(stdout: &str) -> Outcome {
 }
 
 #[cfg(test)]
+#[path = "../../../tests-support/tools.rs"]
+mod test_tools;
+
+#[cfg(test)]
 mod tests {
+    use super::test_tools as tools;
     use super::*;
+    use std::fs;
+    use std::path::Path;
 
     fn int(name: &str) -> Expr {
         Expr::Var(name.to_string())
@@ -408,6 +489,35 @@ mod tests {
     }
 
     #[test]
+    fn config_comes_from_the_named_variables() {
+        let values = |name: &str| match name {
+            "TPT_PROOF_Z3" => Some("C:/tools/z3.exe".to_string()),
+            "TPT_PROOF_TIMEOUT_MS" => Some(" 2500 ".to_string()),
+            _ => None,
+        };
+        let config = SolverConfig::from_lookup(values).expect("valid values");
+        assert_eq!(config.z3, PathBuf::from("C:/tools/z3.exe"));
+        assert_eq!(config.timeout_ms, 2500);
+    }
+
+    #[test]
+    fn unset_variables_keep_the_defaults() {
+        let config = SolverConfig::from_lookup(|_| None).expect("no values is valid");
+        let default = SolverConfig::default();
+        assert_eq!(config.z3, default.z3);
+        assert_eq!(config.timeout_ms, default.timeout_ms);
+    }
+
+    #[test]
+    fn a_bad_timeout_is_rejected_with_its_text() {
+        for text in ["soon", "0", "-5", "1.5"] {
+            let lookup = |name: &str| (name == "TPT_PROOF_TIMEOUT_MS").then(|| text.to_string());
+            let error = SolverConfig::from_lookup(lookup).expect_err("not a positive whole number");
+            assert!(error.contains(text), "{error}");
+        }
+    }
+
+    #[test]
     fn missing_solver_is_an_error_not_a_proof() {
         let config = SolverConfig {
             z3: PathBuf::from("definitely-not-a-real-z3-binary"),
@@ -416,18 +526,56 @@ mod tests {
         assert!(matches!(check(&ok_vc(), &config), Outcome::Error(_)));
     }
 
+    /// A stand-in solver that sleeps and never answers. Its arguments are ignored.
+    fn hanging_solver(dir: &Path) -> PathBuf {
+        #[cfg(windows)]
+        let (name, body) = ("hang.cmd", "@echo off\r\nping -n 30 127.0.0.1 > nul\r\n");
+        #[cfg(not(windows))]
+        let (name, body) = ("hang.sh", "#!/bin/sh\nsleep 30\n");
+        let path = dir.join(name);
+        fs::write(&path, body).expect("the test directory is writable");
+        #[cfg(not(windows))]
+        {
+            use std::os::unix::fs::PermissionsExt as _;
+            fs::set_permissions(&path, fs::Permissions::from_mode(0o755))
+                .expect("the test script can be made executable");
+        }
+        path
+    }
+
+    #[test]
+    fn a_solver_that_hangs_is_killed_and_reported_as_a_timeout() {
+        let dir = std::env::temp_dir().join(format!("tpt-proof-hang-{}", std::process::id()));
+        fs::create_dir_all(&dir).expect("the temp directory is writable");
+        let config = SolverConfig {
+            z3: hanging_solver(&dir),
+            timeout_ms: 100,
+        };
+        let started = Instant::now();
+        let outcome = check(&ok_vc(), &config);
+        assert_eq!(outcome, Outcome::Timeout, "got {outcome:?}");
+        assert!(
+            started.elapsed() < Duration::from_secs(20),
+            "the hung solver was not killed in time"
+        );
+    }
+
     /// Needs a `z3` binary on the PATH. Run with `cargo test -- --ignored`.
     #[test]
-    #[ignore = "requires z3 on PATH"]
     fn z3_proves_the_valid_vc() {
+        if tools::skip_unless("z3") {
+            return;
+        }
         let outcome = check(&ok_vc(), &SolverConfig::default());
         assert_eq!(outcome, Outcome::SolverUnsat, "got {outcome:?}");
     }
 
     /// Needs a `z3` binary on the PATH. Run with `cargo test -- --ignored`.
     #[test]
-    #[ignore = "requires z3 on PATH"]
     fn z3_finds_a_counterexample_to_a_false_vc() {
+        if tools::skip_unless("z3") {
+            return;
+        }
         let mut vc = ok_vc();
         // Drop the assumption, so x = -1 is a counterexample.
         vc.assumptions.clear();

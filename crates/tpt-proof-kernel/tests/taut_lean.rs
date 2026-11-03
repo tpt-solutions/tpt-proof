@@ -9,6 +9,9 @@
 //!
 //! Needs `lean` on the PATH. Run with `cargo test -- --ignored`.
 
+#[path = "../../../tests-support/tools.rs"]
+mod tools;
+
 use std::fmt::Write as _;
 use std::path::PathBuf;
 use std::process::Command;
@@ -107,8 +110,10 @@ fn lean_accepts(index: usize, formula: &Formula) -> bool {
 }
 
 #[test]
-#[ignore = "requires lean on PATH"]
 fn lean_agrees_with_the_kernel_on_generated_formulas() {
+    if tools::skip_unless("lean") {
+        return;
+    }
     let kernel = Kernel::new();
     let mut rng = Rng(0x2545_f491_4f6c_dd1d);
     let mut accepted = 0;

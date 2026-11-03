@@ -5,6 +5,9 @@
 //! falsifies the goal. It cannot prove a VC valid, but it catches wrong VCs
 //! without a solver. The Z3 tests at the end check the real proofs.
 
+#[path = "../../../tests-support/tools.rs"]
+mod tools;
+
 use std::collections::BTreeMap;
 
 use tpt_proof_contract::smt::{check, encode, SolverConfig};
@@ -277,8 +280,10 @@ fn assignment_to_an_undeclared_variable_is_an_error() {
 }
 
 #[test]
-#[ignore = "requires z3 on PATH"]
 fn z3_proves_the_loop_vc() {
+    if tools::skip_unless("z3") {
+        return;
+    }
     let vcs = generate(&count_to_n(good_invariant())).expect("generates");
     let outcome = check(&vcs[0], &SolverConfig::default());
     assert_eq!(outcome, Outcome::SolverUnsat, "got {outcome:?}");
