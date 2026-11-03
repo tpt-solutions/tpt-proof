@@ -39,7 +39,11 @@ pub mod tactics;
 
 /// Everything a typical user needs from each layer.
 pub mod prelude {
+    pub use crate::tactics::{Goal, Proof, ProofError, Suggestion, TacticError};
+    pub use crate::{library, tactics};
     pub use tpt_proof_core::prelude::*;
     pub use tpt_proof_kernel::{Kernel, ProofTerm, Prop, Theorem};
-    pub use tpt_proof_macros::{ensures, refined, requires, runtime_check, state_machine};
+    pub use tpt_proof_macros::{
+        ensures, invariant, refined, requires, runtime_check, state_machine,
+    };
 }

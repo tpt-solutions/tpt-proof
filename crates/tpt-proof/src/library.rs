@@ -92,7 +92,14 @@ pub fn save(kernel: &Kernel, lemmas: &[Lemma]) -> Result<String, LibraryError> {
 /// Loads a library into a fresh kernel. Every declaration and lemma is checked
 /// by the kernel, so the returned kernel holds only what it has accepted.
 pub fn load(source: &str) -> Result<Kernel, LibraryError> {
+    load_with_lemmas(source).map(|(kernel, _)| kernel)
+}
+
+/// Like [`load`], and also returns the lemmas with their proof terms. The export
+/// needs the terms, which the kernel does not keep.
+pub fn load_with_lemmas(source: &str) -> Result<(Kernel, Vec<Lemma>), LibraryError> {
     let mut kernel = Kernel::new();
+    let mut lemmas = Vec::new();
     for declaration in read_all(source)? {
         let items = list(&declaration)?;
         let head = word(
@@ -138,7 +145,12 @@ pub fn load(source: &str) -> Result<Kernel, LibraryError> {
                 fixed(items, 3, head)?;
                 let prop = decode_prop(&items[2])?;
                 let proof = decode_proof(&items[3])?;
-                kernel.declare_theorem(&text_at(items, 1)?, &proof, &prop)
+                let name = text_at(items, 1)?;
+                let checked = kernel.declare_theorem(&name, &proof, &prop);
+                if checked.is_ok() {
+                    lemmas.push(Lemma { name, prop, proof });
+                }
+                checked
             }
             other => return Err(malformed(&format!("unknown declaration `{other}`"))),
         };
@@ -147,7 +159,7 @@ pub fn load(source: &str) -> Result<Kernel, LibraryError> {
             error,
         })?;
     }
-    Ok(kernel)
+    Ok((kernel, lemmas))
 }
 
 /// The declarations for the kernel's sorts, inductive types, symbols, and axioms,

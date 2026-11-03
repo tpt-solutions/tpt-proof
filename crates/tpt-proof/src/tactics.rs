@@ -9,6 +9,7 @@
 
 use std::fmt;
 
+use tpt_proof_kernel::formula::{self, Formula};
 use tpt_proof_kernel::{Kernel, KernelError, ProofTerm, Prop, Sort, Term, Theorem};
 
 /// A proposition to prove, together with the hypotheses available to prove it.
@@ -103,6 +104,9 @@ pub enum TacticError {
     /// `case_split` on a variable that a hypothesis mentions would make the
     /// split unsound, because the hypothesis refers to one particular value.
     VariableInHypothesis(String),
+    /// `tauto` needs the goal and every hypothesis to be built from implications,
+    /// `false` and atoms.
+    NotPropositional(Prop),
     /// `rewrite` needs an equation.
     NotAnEquation(Prop),
     /// `rewrite` finds no occurrence of the equation's left-hand side in the goal.
@@ -119,6 +123,10 @@ impl fmt::Display for TacticError {
             TacticError::NotAnImplication(p) => {
                 write!(f, "`intro` needs an implication, found {p}")
             }
+            TacticError::NotPropositional(p) => write!(
+                f,
+                "`tauto` needs implications, `false` and atoms, found {p}"
+            ),
             TacticError::NotAForall(p) => write!(f, "`intro_forall` needs a forall, found {p}"),
             TacticError::NoSuchHypothesis(n) => write!(f, "no hypothesis named `{n}`"),
             TacticError::NoSuchAxiom(n) => write!(f, "no axiom named `{n}`"),
@@ -241,6 +249,14 @@ impl<'k> Proof<'k> {
     /// mention it, so that the new binder cannot capture anything.
     pub fn intro_individual(&mut self, name: &str) -> Result<(), TacticError> {
         self.apply(|goal| intro_individual(goal, name))
+    }
+
+    /// `tauto`: closes the goal when the hypotheses imply the target in every
+    /// truth assignment. The goal and the hypotheses must be built from
+    /// implications, `false` and atoms. The tautology rule decides the statement,
+    /// and each hypothesis is then applied in order.
+    pub fn tauto(&mut self) -> Result<(), TacticError> {
+        self.apply(tauto)
     }
 
     /// Closes the goal with a hypothesis of the same proposition.
@@ -460,6 +476,40 @@ fn intro_forall(goal: &Goal, name: &str) -> Result<Step, TacticError> {
     Ok(Step {
         subgoals: vec![subgoal],
         build: Box::new(move |mut kids| ProofTerm::TyLam(binder, Box::new(kids.remove(0)))),
+    })
+}
+
+/// The formula that stands for a propositional proposition, or `None` if the
+/// proposition uses a quantifier, an equation or a predicate.
+fn to_formula(prop: &Prop) -> Option<Formula> {
+    match prop {
+        Prop::Atom(name) if name == formula::FALSE => Some(Formula::Const(false)),
+        Prop::Atom(_) => Some(Formula::Atom(prop.clone())),
+        Prop::Imp(a, b) => Some(Formula::Imp(
+            Box::new(to_formula(a)?),
+            Box::new(to_formula(b)?),
+        )),
+        _ => None,
+    }
+}
+
+fn tauto(goal: &Goal) -> Result<Step, TacticError> {
+    let not_propositional = |prop: &Prop| TacticError::NotPropositional(prop.clone());
+    let mut whole = to_formula(&goal.target).ok_or_else(|| not_propositional(&goal.target))?;
+    // `H1 -> ... -> Hn -> target`, with the hypotheses in order, oldest outermost.
+    for (_, prop) in goal.hyps.iter().rev() {
+        let hyp = to_formula(prop).ok_or_else(|| not_propositional(prop))?;
+        whole = Formula::Imp(Box::new(hyp), Box::new(whole));
+    }
+    let term = goal
+        .hyps
+        .iter()
+        .fold(ProofTerm::Taut(whole), |term, (name, _)| {
+            ProofTerm::App(Box::new(term), Box::new(ProofTerm::Var(name.clone())))
+        });
+    Ok(Step {
+        subgoals: Vec::new(),
+        build: Box::new(move |_| term),
     })
 }
 

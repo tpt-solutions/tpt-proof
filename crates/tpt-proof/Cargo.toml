@@ -16,6 +16,7 @@ tpt-proof-macros = { version = "0.0.1", path = "../tpt-proof-macros" }
 
 [dev-dependencies]
 trybuild = "1"
+tpt-proof-export = { version = "0.0.1", path = "../tpt-proof-export" }
 
 [lints]
 workspace = true

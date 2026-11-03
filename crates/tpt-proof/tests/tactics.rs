@@ -487,3 +487,52 @@ fn intro_individual_refuses_a_name_the_body_already_uses() {
         Err(TacticError::NameClash("y".to_string()))
     );
 }
+
+#[test]
+fn tauto_closes_a_propositional_goal_with_its_hypotheses() {
+    // (A -> B) -> (B -> C) -> A -> C, introduced and then closed by tautology.
+    let kernel = Kernel::new();
+    let target = Prop::imp(
+        Prop::imp(atom("A"), atom("B")),
+        Prop::imp(
+            Prop::imp(atom("B"), atom("C")),
+            Prop::imp(atom("A"), atom("C")),
+        ),
+    );
+    let mut proof = Proof::new(&kernel, target.clone());
+    proof.intro("f").expect("intro f");
+    proof.intro("g").expect("intro g");
+    proof.intro("a").expect("intro a");
+    proof.tauto().expect("tauto");
+    let thm = proof.qed().expect("the kernel accepts the tautology");
+    assert_eq!(thm.prop(), &target);
+}
+
+#[test]
+fn tauto_uses_false_as_a_hypothesis() {
+    // With `false` in scope, every atom follows.
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::imp(atom("false"), atom("C")));
+    proof.intro("bottom").expect("intro");
+    proof.tauto().expect("tauto");
+    assert!(proof.qed().is_ok());
+}
+
+#[test]
+fn tauto_refuses_a_quantified_goal() {
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::forall("p", atom("p")));
+    assert!(matches!(
+        proof.tauto(),
+        Err(TacticError::NotPropositional(_))
+    ));
+}
+
+#[test]
+fn tauto_on_a_non_tautology_is_rejected_at_qed() {
+    // The tactic applies the tautology rule, which the kernel refuses here.
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::imp(atom("A"), atom("B")));
+    proof.tauto().expect("the tactic itself applies");
+    assert!(proof.qed().is_err());
+}
