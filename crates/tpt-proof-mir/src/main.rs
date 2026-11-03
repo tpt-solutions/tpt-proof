@@ -9,6 +9,11 @@
 //! The exit status is 0 only if every VC is proved and every function is in the
 //! supported subset. Anything else exits with 1, so a failed or unverified function
 //! never looks like a success.
+//!
+//! The solver is set by `TPT_PROOF_Z3` and `TPT_PROOF_TIMEOUT_MS` (see
+//! [`SolverConfig::from_lookup`]). `TPT_PROOF_FORMAT=json` prints one JSON object per
+//! line, `{"function", "vc", "status", "detail"}`, with `vc` null for a line about
+//! the function as a whole. The text form is unchanged.
 
 #![feature(rustc_private)]
 #![forbid(unsafe_code)]
@@ -32,11 +37,48 @@ struct Verify {
     not_proved: usize,
     cache: VcCache,
     proof_mode: bool,
+    config: SolverConfig,
+    json: bool,
+}
+
+impl Verify {
+    /// Prints one result. `vc` is the VC name, or `None` for a line about the
+    /// function as a whole. `status` is the machine-readable part of the result.
+    fn line(&self, function: &str, vc: Option<&str>, status: &str, detail: &str) {
+        if self.json {
+            let vc = vc.map_or_else(|| "null".to_string(), json_string);
+            println!(
+                "{{\"function\":{},\"vc\":{vc},\"status\":{},\"detail\":{}}}",
+                json_string(function),
+                json_string(status),
+                json_string(detail)
+            );
+        } else {
+            println!("{}: {detail}", vc.unwrap_or(function));
+        }
+    }
+}
+
+/// A JSON string literal for `text`.
+fn json_string(text: &str) -> String {
+    let mut out = String::from("\"");
+    for c in text.chars() {
+        match c {
+            '"' => out.push_str("\\\""),
+            '\\' => out.push_str("\\\\"),
+            '\n' => out.push_str("\\n"),
+            '\r' => out.push_str("\\r"),
+            '\t' => out.push_str("\\t"),
+            c if (c as u32) < 0x20 => out.push_str(&format!("\\u{:04x}", c as u32)),
+            c => out.push(c),
+        }
+    }
+    out.push('"');
+    out
 }
 
 impl Callbacks for Verify {
     fn after_analysis<'tcx>(&mut self, _compiler: &Compiler, tcx: TyCtxt<'tcx>) -> Compilation {
-        let config = SolverConfig::default();
         for local_def_id in tcx.hir_body_owners() {
             let def_id = local_def_id.to_def_id();
             if tcx.def_kind(def_id) != DefKind::Fn {
@@ -46,39 +88,51 @@ impl Callbacks for Verify {
             match translate(tcx, def_id) {
                 Err(reason) => {
                     self.not_proved += 1;
-                    println!("{name}: unsupported: {reason}");
+                    self.line(
+                        &name,
+                        None,
+                        "unsupported",
+                        &format!("unsupported: {reason}"),
+                    );
                 }
-                Ok(vcs) if vcs.is_empty() => println!("{name}: no assertions"),
+                Ok(vcs) if vcs.is_empty() => {
+                    self.line(&name, None, "no_assertions", "no assertions");
+                }
                 Ok(vcs) => {
                     for vc in &vcs {
                         let outcome = if self.proof_mode {
-                            verify(vc, &config)
+                            verify(vc, &self.config)
                         } else {
-                            self.cache.check(vc, &config)
+                            self.cache.check(vc, &self.config)
                         };
                         if !matches!(outcome, Outcome::SolverUnsat | Outcome::Verified) {
                             self.not_proved += 1;
                         }
-                        let verdict = match outcome {
-                            Outcome::SolverUnsat => {
-                                "proved (solver unsat, not kernel-checked)".to_string()
-                            }
-                            Outcome::Verified => "proved (kernel-checked)".to_string(),
-                            Outcome::Unchecked { reason } => {
-                                format!("unchecked (solver unsat, proof not accepted): {reason}")
-                            }
+                        let (status, verdict) = match outcome {
+                            Outcome::SolverUnsat => (
+                                "proved",
+                                "proved (solver unsat, not kernel-checked)".to_string(),
+                            ),
+                            Outcome::Verified => ("proved", "proved (kernel-checked)".to_string()),
+                            Outcome::Unchecked { reason } => (
+                                "unchecked",
+                                format!("unchecked (solver unsat, proof not accepted): {reason}"),
+                            ),
                             Outcome::Failed { counterexample } => {
                                 let values: Vec<String> = counterexample_values(&counterexample)
                                     .into_iter()
                                     .map(|(name, value)| format!("{name} = {value}"))
                                     .collect();
-                                format!("counterexample: {}", values.join(", "))
+                                (
+                                    "counterexample",
+                                    format!("counterexample: {}", values.join(", ")),
+                                )
                             }
-                            Outcome::Timeout => "timeout".to_string(),
-                            Outcome::Unknown(reason) => format!("unknown: {reason}"),
-                            Outcome::Error(reason) => format!("error: {reason}"),
+                            Outcome::Timeout => ("timeout", "timeout".to_string()),
+                            Outcome::Unknown(reason) => ("unknown", format!("unknown: {reason}")),
+                            Outcome::Error(reason) => ("error", format!("error: {reason}")),
                         };
-                        println!("{}: {verdict}", vc.name);
+                        self.line(&name, Some(&vc.name), status, &verdict);
                     }
                 }
             }
@@ -105,10 +159,20 @@ fn main() {
         Err(_) => VcCache::in_memory(),
     };
     let proof_mode = std::env::var("TPT_PROOF_VERIFY").is_ok_and(|value| value == "1");
+    let json = std::env::var("TPT_PROOF_FORMAT").is_ok_and(|value| value == "json");
+    let config = match SolverConfig::from_lookup(|name| std::env::var(name).ok()) {
+        Ok(config) => config,
+        Err(message) => {
+            eprintln!("tpt-proof-mir: {message}");
+            std::process::exit(2);
+        }
+    };
     let mut driver = Verify {
         not_proved: 0,
         cache,
         proof_mode,
+        config,
+        json,
     };
     rustc_driver::compiler_entrypoint(&compiler_args, &mut driver);
     if driver.not_proved > 0 {

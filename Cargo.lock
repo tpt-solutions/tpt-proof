@@ -475,6 +475,7 @@ name = "tpt-proof"
 version = "0.0.1"
 dependencies = [
  "tpt-proof-core",
+ "tpt-proof-export",
  "tpt-proof-kernel",
  "tpt-proof-macros",
  "tpt-proof-runtime",
@@ -484,6 +485,10 @@ dependencies = [
 [[package]]
 name = "tpt-proof-cli"
 version = "0.0.1"
+dependencies = [
+ "tpt-proof",
+ "tpt-proof-export",
+]
 
 [[package]]
 name = "tpt-proof-contract"

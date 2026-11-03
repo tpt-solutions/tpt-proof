@@ -319,3 +319,47 @@ fn the_exit_status_is_zero_only_when_everything_is_proved() {
     assert_eq!(exit_code_for("ref_overflow.rs"), Some(1));
     assert_eq!(exit_code_for("mut_ref_unsupported.rs"), Some(1));
 }
+
+/// Runs the driver on a fixture with extra environment variables.
+fn run_with_env(fixture: &str, vars: &[(&str, &str)]) -> std::process::Output {
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let mut command = Command::new(env!("CARGO_BIN_EXE_tpt-proof-mir"));
+    command.arg(format!("{manifest}/tests/fixtures/{fixture}"));
+    for (name, value) in vars {
+        command.env(name, value);
+    }
+    command.output().expect("run the driver")
+}
+
+#[test]
+fn json_output_has_one_object_per_line_with_the_same_verdicts() {
+    let output = run_with_env("overflow_unsafe.rs", &[("TPT_PROOF_FORMAT", "json")]);
+    let stdout = String::from_utf8_lossy(&output.stdout);
+    let lines: Vec<&str> = stdout.lines().collect();
+    assert!(!lines.is_empty(), "no output");
+    for line in &lines {
+        assert!(
+            line.starts_with("{\"function\":") && line.ends_with('}'),
+            "{line}"
+        );
+    }
+    assert!(
+        lines
+            .iter()
+            .any(|line| line.contains("\"status\":\"counterexample\"")),
+        "{stdout}"
+    );
+}
+
+#[test]
+fn a_bad_timeout_is_a_usage_error_before_any_checking() {
+    let output = run_with_env("overflow_safe.rs", &[("TPT_PROOF_TIMEOUT_MS", "soon")]);
+    assert_eq!(output.status.code(), Some(2));
+    assert!(String::from_utf8_lossy(&output.stderr).contains("TPT_PROOF_TIMEOUT_MS"));
+}
+
+#[test]
+fn a_valid_timeout_still_proves_the_fixture() {
+    let output = run_with_env("overflow_safe.rs", &[("TPT_PROOF_TIMEOUT_MS", "5000")]);
+    assert_eq!(output.status.code(), Some(0));
+}
