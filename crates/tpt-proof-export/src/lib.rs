@@ -90,6 +90,23 @@ pub fn export(kernel: &Kernel, lemmas: &[Lemma]) -> Result<String, ExportError> 
         ty.push_str("Prop");
         out.push_str(&format!("axiom {} : {ty}\n", quote("pred", name)?));
     }
+    // A free propositional variable names one fixed proposition, so it is a global
+    // constant of the environment. Axioms, lemmas and proofs all refer to it.
+    let mut constants: Vec<String> = Vec::new();
+    let props = kernel
+        .axioms()
+        .map(|axiom| &axiom.prop)
+        .chain(lemmas.iter().map(|lemma| &lemma.prop));
+    for prop in props {
+        for atom in free_atoms(prop) {
+            if !constants.contains(&atom) {
+                constants.push(atom);
+            }
+        }
+    }
+    for atom in &constants {
+        out.push_str(&format!("axiom {} : Prop\n", quote("prop", atom)?));
+    }
     for axiom in kernel.axioms() {
         let statement = lean_prop(&axiom.prop)?;
         out.push_str(&format!(
@@ -99,22 +116,15 @@ pub fn export(kernel: &Kernel, lemmas: &[Lemma]) -> Result<String, ExportError> 
         ));
     }
 
-    // Like the kernel, a free propositional atom is a hypothesis, so the Lean
-    // statement quantifies over it and the proof abstracts it.
-    let mut earlier: Vec<(&str, Vec<String>)> = Vec::new();
+    let mut earlier: Vec<&str> = Vec::new();
     for lemma in lemmas {
-        let mut statement = lean_prop(&lemma.prop)?;
-        let mut proof = lean_proof(kernel, &earlier, &lemma.proof)?;
-        let atoms = free_atoms(&lemma.prop);
-        for atom in atoms.iter().rev() {
-            statement = format!("(∀ ({} : Prop), {statement})", quote("prop", atom)?);
-            proof = format!("(fun ({} : Prop) => {proof})", quote("prop", atom)?);
-        }
+        let statement = lean_prop(&lemma.prop)?;
+        let proof = lean_proof(kernel, &earlier, &lemma.proof)?;
         out.push_str(&format!(
             "\ntheorem {} : {statement} :=\n  {proof}\n",
             quote("thm", &lemma.name)?
         ));
-        earlier.push((&lemma.name, atoms));
+        earlier.push(&lemma.name);
     }
     Ok(out)
 }
@@ -164,27 +174,15 @@ fn lean_prop(prop: &Prop) -> Result<String, ExportError> {
     })
 }
 
-fn lean_proof(
-    kernel: &Kernel,
-    earlier: &[(&str, Vec<String>)],
-    term: &ProofTerm,
-) -> Result<String, ExportError> {
+fn lean_proof(kernel: &Kernel, earlier: &[&str], term: &ProofTerm) -> Result<String, ExportError> {
     let go = |t: &ProofTerm| lean_proof(kernel, earlier, t);
     Ok(match term {
         ProofTerm::Var(name) => quote("hyp", name)?,
         ProofTerm::Const(name) => {
-            let Some((_, atoms)) = earlier
-                .iter()
-                .find(|(earlier_name, _)| earlier_name == name)
-            else {
+            if !earlier.contains(&name.as_str()) {
                 return Err(ExportError::UnknownTheorem(name.clone()));
-            };
-            // The lemma quantifies over its free atoms, so they are passed explicitly.
-            let mut out = quote("thm", name)?;
-            for atom in atoms {
-                out = format!("({out} {})", quote("prop", atom)?);
             }
-            out
+            quote("thm", name)?
         }
         ProofTerm::Axiom(name) => {
             if kernel.axiom(name).is_none() {

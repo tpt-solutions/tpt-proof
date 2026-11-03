@@ -1,6 +1,9 @@
 //! Exports kernel-checked proofs to Lean and, when `lean` is available, asks Lean
 //! to check the result.
 
+#[path = "../../../tests-support/tools.rs"]
+mod tools;
+
 use std::path::PathBuf;
 use std::process::Command;
 
@@ -201,6 +204,19 @@ fn a_proof_may_refer_only_to_declared_axioms() {
 }
 
 #[test]
+fn a_free_propositional_variable_is_exported_as_a_global_constant() {
+    // `A` names one fixed proposition, so it is declared once, and the axiom that
+    // states it refers to that constant.
+    let mut kernel = Kernel::new();
+    kernel
+        .declare_axiom("open", atom("A"), "free A")
+        .expect("the kernel accepts the axiom");
+    let text = export(&kernel, &[]).expect("exports");
+    assert!(text.contains("axiom «prop:A» : Prop\n"), "{text}");
+    assert!(text.contains("axiom «ax:open» : «prop:A»"), "{text}");
+}
+
+#[test]
 fn names_that_cannot_be_quoted_are_rejected() {
     let mut kernel = Kernel::new();
     kernel.declare_function("bad»name", 0).expect("declares");
@@ -210,8 +226,10 @@ fn names_that_cannot_be_quoted_are_rejected() {
 /// Writes the export to a temporary file and runs `lean` on it. Lean checks
 /// every proof, so a zero exit status is an independent check.
 #[test]
-#[ignore = "requires lean on PATH"]
 fn lean_accepts_the_exported_proofs() {
+    if tools::skip_unless("lean") {
+        return;
+    }
     let mut kernel = kernel();
     let lemmas = lemmas(&mut kernel);
     let text = export(&kernel, &lemmas).expect("exports");
@@ -277,4 +295,44 @@ fn induction_is_refused_rather_than_exported() {
         export(&kernel, &[lemma]),
         Err(ExportError::UnsupportedRule(_))
     ));
+}
+
+/// Free propositional variables are global constants. Lean rejected the export of
+/// axioms that mention `A` and `B` when they were left unbound, so this runs Lean on
+/// that case.
+#[test]
+fn lean_accepts_axioms_over_free_propositional_variables() {
+    if tools::skip_unless("lean") {
+        return;
+    }
+    let mut kernel = Kernel::new();
+    kernel
+        .declare_axiom("a_holds", atom("A"), "A is given")
+        .expect("declares");
+    kernel
+        .declare_axiom(
+            "a_implies_b",
+            Prop::imp(atom("A"), atom("B")),
+            "A implies B",
+        )
+        .expect("declares");
+    let b_term = ProofTerm::App(
+        Box::new(ProofTerm::Axiom("a_implies_b".to_string())),
+        Box::new(ProofTerm::Axiom("a_holds".to_string())),
+    );
+    let lemmas = vec![Lemma {
+        name: "b_holds".to_string(),
+        prop: atom("B"),
+        proof: b_term,
+    }];
+    let text = export(&kernel, &lemmas).expect("exports");
+    let path: PathBuf = std::env::temp_dir().join("tpt_proof_export_free_atoms.lean");
+    std::fs::write(&path, text).expect("writes the file");
+    let output = Command::new("lean").arg(&path).output().expect("runs lean");
+    assert!(
+        output.status.success(),
+        "lean rejected the export:\n{}{}",
+        String::from_utf8_lossy(&output.stdout),
+        String::from_utf8_lossy(&output.stderr)
+    );
 }
