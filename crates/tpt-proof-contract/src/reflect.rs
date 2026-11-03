@@ -594,30 +594,32 @@ impl Translator<'_> {
         let original = Formula::Atom(rebuild(symbol, &from));
         let mut state = from.clone();
         let mut chain: Option<Step> = None;
-        for (index, (premise, premise_formula)) in steps.iter().enumerate() {
-            if index >= from.len() {
-                return Err(ReflectError::Malformed(
-                    "too many premises for a comparison".to_string(),
-                ));
-            }
+        for index in 0..from.len() {
             if state[index] == to[index] {
                 continue;
             }
-            let Formula::Atom(Prop::Eq(lhs, rhs)) = premise_formula else {
-                return Err(ReflectError::Malformed(
-                    "a comparison premise is not an equation".to_string(),
-                ));
-            };
-            // The step needs an equation from the current argument to the target.
-            let equation = if *lhs == state[index] && *rhs == to[index] {
-                premise.clone()
-            } else if *rhs == state[index] && *lhs == to[index] {
-                ProofTerm::Sym(Box::new(premise.clone()))
-            } else {
-                return Err(ReflectError::Malformed(
-                    "a comparison premise does not match".to_string(),
-                ));
-            };
+            // Z3 gives one premise per changed argument, not one per argument,
+            // and not in a fixed order. Find the one that equates this argument
+            // with its target. Any other premise (such as a reflexive one) is
+            // not used.
+            let equation = steps
+                .iter()
+                .find_map(|(premise, formula)| match formula {
+                    Formula::Atom(Prop::Eq(lhs, rhs))
+                        if *lhs == state[index] && *rhs == to[index] =>
+                    {
+                        Some(premise.clone())
+                    }
+                    Formula::Atom(Prop::Eq(lhs, rhs))
+                        if *rhs == state[index] && *lhs == to[index] =>
+                    {
+                        Some(ProofTerm::Sym(Box::new(premise.clone())))
+                    }
+                    _ => None,
+                })
+                .ok_or_else(|| {
+                    ReflectError::Malformed("no premise equates a changed argument".to_string())
+                })?;
 
             let before = Formula::Atom(rebuild(symbol, &state));
             let mut next = state.clone();

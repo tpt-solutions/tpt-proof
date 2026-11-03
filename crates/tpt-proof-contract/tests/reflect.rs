@@ -204,3 +204,29 @@ fn a_one_item_conjunction_matches_the_solvers_form() {
     };
     assert_eq!(verify(&vc, &SolverConfig::default()), Outcome::Verified);
 }
+
+#[test]
+#[ignore = "requires z3 on PATH"]
+fn a_comparison_whose_only_changed_argument_is_not_the_first() {
+    // `100 <= x + 100` and `100 <= 100 + x` differ in one argument of the sum,
+    // which is not the first argument of the comparison. Z3 also normalizes the
+    // comparison, which is not reconstructed yet, so this VC is not expected to
+    // verify. The test pins the fixed bug: the congruence premise is matched to
+    // its argument, so the failure is about normalization, not about premises.
+    let vc = Vc {
+        name: "reordered sum".to_string(),
+        vars: vec![("x".to_string(), Sort::Int)],
+        assumptions: vec![],
+        goal: Expr::Eq(
+            Box::new(le(int(100), add(var("x"), int(100)))),
+            Box::new(le(int(100), add(int(100), var("x")))),
+        ),
+    };
+    match verify(&vc, &SolverConfig::default()) {
+        Outcome::Unchecked { reason } => assert!(
+            !reason.contains("do not all change"),
+            "the congruence premise was not matched: {reason}"
+        ),
+        other => panic!("expected Unchecked on normalization, got {other:?}"),
+    }
+}

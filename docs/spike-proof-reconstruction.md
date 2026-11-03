@@ -140,7 +140,7 @@ The 30 MIR fixtures in `crates/tpt-proof-mir/tests/fixtures` were run through th
   - 11 use Z3's indexed `th-lemma` rules, which are not reconstructed (Farkas certificates);
   - 6 are `rewrite` steps that need arithmetic normalization;
   - 5 are `monotonicity` steps over normalized forms;
-  - 2 are a malformed comparison congruence, which needs investigation (it may be a translation bug);
+  - 2 were a translation bug, now fixed: Z3 gives one premise per changed argument, and the translator matched premises by position. They now stop at arithmetic normalization, like the rest of that group;
   - 3 contain `div` or `mod` terms, which are not translated.
 - The first run accepted 6. The gap to 11 was a translation bug: a conjunction of one formula, which the translator builds and Z3 prints as the formula itself, did not match. It is fixed and has a regression test.
 - Timing: the 30 fixtures take about the same time in both modes on this machine (7 s each run), so proof mode adds little cost at this size. This is the whole corpus of fixtures, not a benchmark.
