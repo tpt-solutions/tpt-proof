@@ -13,6 +13,8 @@
 
 use std::fmt;
 
+use crate::formula::Formula;
+
 /// The sort of an individual. `Sort::ind()` is the default sort.
 #[derive(Debug, Clone, PartialEq, Eq, PartialOrd, Ord, Hash)]
 pub struct Sort(pub String);
@@ -448,4 +450,18 @@ pub enum ProofTerm {
     /// same trust that [`crate::Kernel::declare_induction`] relies on. Unlike
     /// induction, the premises get no hypotheses for recursive arguments.
     Cases(String, Sort, Prop, Vec<ProofTerm>),
+    /// Structural induction on an inductive sort: `Induct(x, sort, P, cases)`
+    /// proves `forall x:sort. P`. `cases` has one proof per constructor, in
+    /// declaration order, each proving the premise given by
+    /// [`crate::Kernel::induction_premise`]. Unlike [`ProofTerm::Cases`], each
+    /// premise gets a hypothesis for every recursive argument.
+    ///
+    /// The rule is sound under the same assumption as the induction axiom from
+    /// [`crate::Kernel::declare_induction`]: the constructors generate the sort
+    /// freely, so every value is built from them.
+    Induct(String, Sort, Prop, Vec<ProofTerm>),
+    /// A tautology: proves the encoding of a formula that is true under every
+    /// valuation of its letters. Ground arithmetic atoms are evaluated. See
+    /// the `taut` module for the rule and its trust.
+    Taut(Formula),
 }

@@ -4,7 +4,7 @@
 use std::collections::BTreeSet;
 
 use crate::terms::{alpha_eq, ProofTerm, Prop, Sort, Term};
-use crate::{Kernel, KernelError, Result};
+use crate::{taut, Kernel, KernelError, Result};
 
 /// Everything in scope while checking a term.
 #[derive(Default)]
@@ -224,46 +224,105 @@ pub(crate) fn infer(
             Ok(motive.subst_individual(variable, &right))
         }
 
-        ProofTerm::Cases(variable, sort, motive, cases) => {
-            let constructors = kernel
-                .constructors(sort)
-                .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
-            if cases.len() != constructors.len() {
-                return Err(KernelError::WrongNumberOfCases {
-                    sort: sort.clone(),
-                    expected: constructors.len(),
-                    found: cases.len(),
-                });
-            }
-            ctx.individuals.push((variable.clone(), sort.clone()));
-            let checked = kernel.check_prop(motive, &ctx.individuals);
-            ctx.individuals.pop();
-            checked?;
-            for ((constructor, _), case) in constructors.iter().zip(cases) {
-                let expected = kernel.case_premise(variable, sort, motive, constructor)?;
-                let found = infer(kernel, ctx, case, deps)?;
-                if !alpha_eq(&found, &expected) {
-                    return Err(KernelError::TypeMismatch { expected, found });
-                }
-            }
-            // As for IndLam: a hypothesis or an axiom that mentions the variable
-            // would make the generalized proof depend on one individual.
-            if ctx
-                .props
-                .iter()
-                .any(|(_, prop)| prop.has_free_individual(variable))
-            {
-                return Err(KernelError::InvalidGeneralization {
-                    variable: variable.clone(),
-                    reason: "a local hypothesis mentions it".to_string(),
-                });
-            }
-            check_deps_do_not_mention(kernel, deps, variable, |prop, n| {
-                prop.has_free_individual(n)
-            })?;
-            Ok(Prop::forall_sorted(variable, sort.clone(), motive.clone()))
+        ProofTerm::Cases(variable, sort, motive, cases) => check_split(
+            kernel,
+            ctx,
+            deps,
+            Split {
+                variable,
+                sort,
+                motive,
+                cases,
+                induction: false,
+            },
+        ),
+
+        ProofTerm::Induct(variable, sort, motive, cases) => check_split(
+            kernel,
+            ctx,
+            deps,
+            Split {
+                variable,
+                sort,
+                motive,
+                cases,
+                induction: true,
+            },
+        ),
+
+        ProofTerm::Taut(formula) => {
+            taut::check(kernel, formula)?;
+            Ok(formula.encode())
         }
     }
+}
+
+/// The parts of a case analysis or an induction over an inductive sort.
+struct Split<'a> {
+    variable: &'a str,
+    sort: &'a Sort,
+    motive: &'a Prop,
+    cases: &'a [ProofTerm],
+    /// Whether each case may use a hypothesis for its recursive arguments.
+    induction: bool,
+}
+
+/// Checks a case analysis (`Cases`) or an induction (`Induct`) and returns the
+/// universal proposition it proves.
+fn check_split(
+    kernel: &Kernel,
+    ctx: &mut Context,
+    deps: &mut BTreeSet<String>,
+    split: Split<'_>,
+) -> Result<Prop> {
+    let Split {
+        variable,
+        sort,
+        motive,
+        cases,
+        induction,
+    } = split;
+    let constructors = kernel
+        .constructors(sort)
+        .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
+    if cases.len() != constructors.len() {
+        return Err(KernelError::WrongNumberOfCases {
+            sort: sort.clone(),
+            expected: constructors.len(),
+            found: cases.len(),
+        });
+    }
+    ctx.individuals.push((variable.to_string(), sort.clone()));
+    let checked = kernel.check_prop(motive, &ctx.individuals);
+    ctx.individuals.pop();
+    checked?;
+    for ((constructor, _), case) in constructors.iter().zip(cases) {
+        let expected = if induction {
+            kernel.induction_premise(variable, sort, motive, constructor)?
+        } else {
+            kernel.case_premise(variable, sort, motive, constructor)?
+        };
+        let found = infer(kernel, ctx, case, deps)?;
+        if !alpha_eq(&found, &expected) {
+            return Err(KernelError::TypeMismatch { expected, found });
+        }
+    }
+    // As for IndLam: a hypothesis or an axiom that mentions the variable would
+    // make the generalized proof depend on one individual.
+    if ctx
+        .props
+        .iter()
+        .any(|(_, prop)| prop.has_free_individual(variable))
+    {
+        return Err(KernelError::InvalidGeneralization {
+            variable: variable.to_string(),
+            reason: "a local hypothesis mentions it".to_string(),
+        });
+    }
+    check_deps_do_not_mention(kernel, deps, variable, |prop, n| {
+        prop.has_free_individual(n)
+    })?;
+    Ok(Prop::forall_sorted(variable, sort.clone(), motive.clone()))
 }
 
 /// Fails if any axiom the proof uses mentions `name`, under `mentions`.

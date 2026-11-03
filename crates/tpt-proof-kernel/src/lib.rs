@@ -11,8 +11,11 @@
 // would complicate the API for no measurable gain.
 #![allow(clippy::result_large_err)]
 
+pub mod arith;
 pub mod axioms;
 mod checker;
+pub mod formula;
+mod taut;
 pub mod terms;
 
 use std::collections::{BTreeMap, BTreeSet};
@@ -104,6 +107,12 @@ pub enum KernelError {
         /// The number of cases given.
         found: usize,
     },
+    /// A tautology is not true under every valuation of its letters.
+    NotATautology(Prop),
+    /// A tautology has more letters than the truth table can check.
+    TooManyLetters(usize),
+    /// A declaration uses a symbol that the built-in arithmetic owns.
+    ReservedSymbol(String),
 }
 
 impl fmt::Display for KernelError {
@@ -167,6 +176,17 @@ impl fmt::Display for KernelError {
                 f,
                 "case analysis on {sort} needs {expected} case(s), given {found}"
             ),
+            KernelError::NotATautology(prop) => {
+                write!(f, "{prop} is not true under every valuation of its letters")
+            }
+            KernelError::TooManyLetters(count) => write!(
+                f,
+                "a tautology has {count} letters, more than the {} the kernel checks",
+                taut::MAX_LETTERS
+            ),
+            KernelError::ReservedSymbol(name) => {
+                write!(f, "`{name}` is reserved by the built-in arithmetic")
+            }
         }
     }
 }
@@ -222,10 +242,32 @@ pub struct Kernel {
 }
 
 impl Kernel {
-    /// Creates a kernel with the default sort `Ind` and no axioms or theorems.
+    /// Creates a kernel with the default sort `Ind`, the built-in integer sort
+    /// and operations (see [`arith`]), and no axioms or theorems.
     pub fn new() -> Self {
         let mut kernel = Kernel::default();
         kernel.sorts.insert(Sort::ind().0);
+        kernel.sorts.insert(arith::INT.to_string());
+        let int = || Sort::named(arith::INT);
+        for symbol in ["+", "-", "*"] {
+            let signature = Signature {
+                args: vec![int(), int()],
+                result: int(),
+            };
+            kernel.functions.insert(symbol.to_string(), signature);
+        }
+        kernel.functions.insert(
+            "neg".to_string(),
+            Signature {
+                args: vec![int()],
+                result: int(),
+            },
+        );
+        for predicate in ["<=", "<"] {
+            kernel
+                .predicates
+                .insert(predicate.to_string(), vec![int(), int()]);
+        }
         kernel
     }
 
@@ -308,6 +350,9 @@ impl Kernel {
         result: Sort,
     ) -> Result<()> {
         self.check_sorts(args.iter().chain(std::iter::once(&result)))?;
+        if arith::is_reserved(symbol) {
+            return Err(KernelError::ReservedSymbol(symbol.to_string()));
+        }
         if self.functions.contains_key(symbol) {
             return Err(KernelError::DuplicateName(symbol.to_string()));
         }
@@ -324,6 +369,9 @@ impl Kernel {
     /// Declares an uninterpreted predicate symbol with explicit argument sorts.
     pub fn declare_predicate_sorted(&mut self, symbol: &str, args: Vec<Sort>) -> Result<()> {
         self.check_sorts(args.iter())?;
+        if arith::is_reserved(symbol) {
+            return Err(KernelError::ReservedSymbol(symbol.to_string()));
+        }
         if self.predicates.contains_key(symbol) {
             return Err(KernelError::DuplicateName(symbol.to_string()));
         }
@@ -531,6 +579,38 @@ impl Kernel {
         motive: &Prop,
         constructor: &str,
     ) -> Result<Prop> {
+        self.constructor_premise(variable, sort, motive, constructor, false)
+    }
+
+    /// The premise that induction on `variable : sort` needs for one constructor
+    /// `C(a0..an)`, given the proposition `motive` over `variable`:
+    ///
+    /// ```text
+    /// forall a0:S0 .. an:Sn. (motive[variable := aj] for each recursive aj) -> motive[variable := C(a0..an)]
+    /// ```
+    ///
+    /// The hypotheses follow the binders, in argument order, which is the shape
+    /// that [`Kernel::declare_induction`] uses for its predicate. Binders are
+    /// chosen as in [`Kernel::case_premise`]. [`ProofTerm::Induct`] takes one
+    /// such premise per constructor.
+    pub fn induction_premise(
+        &self,
+        variable: &str,
+        sort: &Sort,
+        motive: &Prop,
+        constructor: &str,
+    ) -> Result<Prop> {
+        self.constructor_premise(variable, sort, motive, constructor, true)
+    }
+
+    fn constructor_premise(
+        &self,
+        variable: &str,
+        sort: &Sort,
+        motive: &Prop,
+        constructor: &str,
+        induction: bool,
+    ) -> Result<Prop> {
         let constructors = self
             .constructors(sort)
             .ok_or_else(|| KernelError::NotInductive(sort.0.clone()))?;
@@ -553,6 +633,17 @@ impl Kernel {
 
         let term = Term::app(constructor, binders.iter().map(|b| Term::var(b)).collect());
         let mut premise = motive.subst_individual(variable, &term);
+        if induction {
+            let hypotheses: Vec<Prop> = binders
+                .iter()
+                .zip(args)
+                .filter(|(_, arg)| *arg == sort)
+                .map(|(binder, _)| motive.subst_individual(variable, &Term::var(binder)))
+                .collect();
+            for hypothesis in hypotheses.into_iter().rev() {
+                premise = Prop::imp(hypothesis, premise);
+            }
+        }
         for (binder, arg) in binders.iter().zip(args).rev() {
             premise = Prop::forall_sorted(binder, arg.clone(), premise);
         }
@@ -754,6 +845,9 @@ impl Kernel {
                 .find(|(bound, _)| bound == name)
                 .map(|(_, sort)| sort.clone())
                 .ok_or_else(|| KernelError::UnboundIndividual(name.clone())),
+            Term::Fun(symbol, args) if args.is_empty() && arith::is_numeral(symbol) => {
+                Ok(Sort::named(arith::INT))
+            }
             Term::Fun(symbol, args) => {
                 let signature = self
                     .functions
