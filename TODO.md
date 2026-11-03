@@ -56,12 +56,12 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [x] `Type`, `Proposition`, `ProofTerm` AST (`terms.rs`)
 - [x] Opaque `Theorem` type, constructible only by the kernel
 - [x] Contexts, variable binding, capture-avoiding substitution
-- [x] Proof checker (`checker.rs`): Var, Lam, App, Forall, Axiom, Const, TyLam, TyApp, Leibniz, and Cases (case analysis on an inductive sort, `ProofTerm::Cases`). Constructors need no proof-term form: they are term symbols, used through `Term::Fun`.
+- [x] Proof checker (`checker.rs`): Var, Lam, App, Forall, Axiom, Const, TyLam, TyApp, Leibniz, Cases (case analysis on an inductive sort, `ProofTerm::Cases`), and Induct (structural induction, `ProofTerm::Induct`). Constructors need no proof-term form: they are term symbols, used through `Term::Fun`.
 - [x] Inductive type declarations, multiple sorts, and induction axioms (positivity holds by construction: first-order arguments only; recursors pending)
 - [x] Recursive function definitions: structural recursion with extra parameters via `define_by_recursion_with_params` (general termination checking pending)
 - [x] Equality: refl, symm, trans, congruence, and Leibniz substitution (`ProofTerm::Leibniz`, exported to Lean as `Eq.subst`; ground terms over uninterpreted symbols)
 - [x] Individual quantification (`forall x. A`), individual variables, and predicate symbols, with the generalization side condition (added beyond the original plan; see docs/design-inductive-types.md)
-- [ ] Trusted axioms (`axioms.rs`): logical, equality, bounded arithmetic
+- [x] Trusted axioms (`axioms.rs`): eight integer axioms over `Int`, declared by `axioms::declare_standard`. Logic is not axioms: the tautology rule (`Taut`) is a trusted primitive, and equality is primitive. Bounded arithmetic with modular ops is not built; the VCs use unbounded `Int`, so the axioms are over `Int`. Listed in `kernel/AUDIT.md`.
 - [ ] Rust-semantics axioms (safe subset only), each documented and justified
 - [x] Axiom-dependency tracking per theorem
 - [ ] Kernel API: `declare_axiom`, `declare_inductive`, `define_function`, `check_proof`, `assume` (declare_axiom, declare_theorem, check_proof, assume, declare_inductive, and define_function done; define_function is non-recursive and conservative, recursion goes through `define_by_recursion`)
@@ -91,9 +91,9 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 - [ ] Ownership/borrow model (linear resources, loans): phase 1 (shared references to scalars) done; phase 2 (mutable references) designed in docs/design-ownership-phase2.md, awaiting review
 - [ ] VC generation (`vc.rs`): weakest precondition, loops via invariants, overflow/bounds checks (WP, loop havoc, and range (overflow) obligations done; array bounds pending; source language is a model, not MIR)
 - [x] SMT-LIB encoding and `z3` subprocess driver (timeouts, resource limits) (verified against z3 5.3.3: the 3 ignored solver tests pass with `cargo test -- --ignored`)
-- [ ] Proof-producing reflection: convert Z3 output to kernel proof terms; fail if not checkable
+- [ ] Proof-producing reflection: convert Z3 output to kernel proof terms; fail if not checkable (first slice in `reflect.rs`: `smt::verify` asks Z3 for a proof and the kernel checks it. Covered: asserted hypotheses, propositional steps (as tautologies), rewrites that are tautologies or axiom instances, symm/trans/refl, monotonicity over connectives and integer comparisons, congruence, commutativity, `?x` term names. Not covered, and reported as `Unchecked`: `th-lemma` (Farkas certificates), Z3's arithmetic normalization (for example `x - y` to `x + (-1) * y`), `ite`, `div`, `mod`. The MIR corpus of 32 proofs is not yet re-run through reflection)
 - [x] Counterexample extraction and reporting (model parsed into name-value pairs and printed by the driver)
-- [ ] Result states: Verified / Unverified / Failed / Timeout, never silent fallback (Outcome done; Verified is unreachable until proof reflection exists)
+- [ ] Result states: Verified / Unverified / Failed / Timeout, never silent fallback (Outcome has `Verified`, reached only by `smt::verify` when the kernel accepts the proof, and `Unchecked` for a solver `unsat` whose proof was not accepted. The MIR driver still calls `check`, so it reports `SolverUnsat` as before; switching it to `verify` is a decision for the maintainer, because proof mode is slower and the cache keys differ)
 - [x] Caching and incremental verification (VC result cache keyed by encoded script and timeout; TPT_PROOF_CACHE selects a directory; unsat and counterexample results only)
 - [ ] `tpt-proof-cli` (`cargo tpt-proof verify`), diagnostics UX (`tpt-proof verify <file>` runs the MIR driver; the driver needs the nightly runtime environment, so it works under cargo, not as a bare binary yet)
 - [ ] **Milestone: verify simple function contracts**
@@ -101,7 +101,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Phase 4: Layer 3, interactive proofs
 
 - [ ] DSL macros: `#[theorem]`, `#[lemma]`, `arbitrary()`, `assume()`, `show()`, `by {}` (not started: needs the proc-macro crate; tactics are the Rust API for now)
-- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact, case_split, and rewrite (`rewrite_hyp`, `rewrite_axiom`, `rewrite_theorem`: directed rewriting by an equation, built on Leibniz substitution) done. `simplify` is read as a strategy that applies a rule set of rewrites, and is not built; `induct` is pending, because it needs predicate abstraction over the goal, which the kernel's induction axioms do not yet support)
+- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact, case_split, and rewrite (`rewrite_hyp`, `rewrite_axiom`, `rewrite_theorem`: directed rewriting by an equation, built on Leibniz substitution) done. `induct`, with `intro_individual` to open the case binders, done, on the kernel rule `ProofTerm::Induct` (see docs/design-induct.md). `simplify` is read as a strategy that applies a rule set of rewrites, and is not built)
 - [x] Each tactic step emits a proof term that the kernel checks
 - [x] Interactive mode: goal display and suggested next steps (`Proof::suggestions` lists the tactics that apply to the focused goal: intro, intro_forall, assumption, apply_hyp/axiom/theorem; advice only)
 - [x] Dependency/axiom reports (`tpt_proof::report::dependency_report`: each theorem, its axioms, and their justifications)
