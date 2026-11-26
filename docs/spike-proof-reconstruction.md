@@ -228,3 +228,7 @@ Across the 35 fixtures, 42 of 53 solver proofs are kernel-checked, and 11 are no
 Z3 also writes a Farkas step as `((_ th-lemma arith farkas c1 ... cn) p1 ... pn false)`, where each `pi` proves a comparison (or its negation) and the step concludes `false`. The reflection proves each premise, builds the Farkas certificate from the premise formulas, and applies it to the premise proofs. Z3's coefficients are used when the kernel accepts them; otherwise they are searched, as for the other lemma kinds. No new axiom.
 
 Across the 35 fixtures, 44 of 53 solver proofs are kernel-checked, and 9 are not. The remaining 9 are 4 indexed rules with a head the reflection does not recognize (the `triangle-eq` forms, which need the antisymmetry axiom that was left out), 2 theory lemmas of another shape, 2 `ite` terms from signed division, and 1 equation rewritten to a conjunction.
+
+### Tenth slice: division-law literals in theory lemmas
+
+A bare theory lemma whose only true literal is a division-law fact, a remainder that is not negative or that is below its divisor, is reconstructed from the axiom instance. Two lemmas of this shape were the "theory lemma of another shape" failures. The assertions they belong to still depend on a `triangle-eq` lemma, so the count of kernel-checked solver proofs stays at 44 of 53. The remaining blockers are the `triangle-eq` lemmas with a `not (a = b)` literal, which are the same antisymmetry question as before.

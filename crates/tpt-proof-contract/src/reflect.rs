@@ -427,6 +427,27 @@ impl Translator<'_> {
             Formula::Or(items) => items.clone(),
             other => vec![other.clone()],
         };
+        // A literal that the division laws state outright: a remainder is not
+        // negative, or it is below its divisor. The fact is the literal itself.
+        for literal in &literals {
+            let Formula::Atom(prop) = literal else {
+                continue;
+            };
+            let Some((_, proof)) = division_facts(prop)
+                .into_iter()
+                .find(|(fact, _)| fact == prop)
+            else {
+                continue;
+            };
+            let lemma = Formula::Imp(
+                Box::new(Formula::Atom(prop.clone())),
+                Box::new(conclusion.clone()),
+            );
+            return Ok((
+                ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(proof)),
+                conclusion,
+            ));
+        }
         for literal in &literals {
             let Formula::Atom(Prop::Eq(a, b)) = literal else {
                 continue;
