@@ -1,0 +1,12 @@
+// clamp: restrict a value to the range [lo, hi].
+#[doc = "tpt-proof-requires: lo <= hi"]
+#[doc = "tpt-proof-ensures: |result| *result >= lo && *result <= hi"]
+pub fn clamp(value: u32, lo: u32, hi: u32) -> u32 {
+    if value < lo {
+        lo
+    } else if value > hi {
+        hi
+    } else {
+        value
+    }
+}

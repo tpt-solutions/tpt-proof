@@ -51,6 +51,8 @@ and nothing is published yet.
 
 ### Documentation
 
+- `docs/src/gallery.md` and `examples/gallery/`: five verified-Rust examples with the CLI output recorded from the pinned driver, including counterexamples and the two open reflection gaps.
+
 - `docs/kernel-logic.md` describes the tautology rule, Leibniz, case analysis,
   induction and the scope limit of `Taut`.
 - `kernel/AUDIT.md` records the soundness fix.

@@ -183,7 +183,7 @@ Ordered by priority. Do the soundness items before anything else.
 ### Examples and templates
 
 - [x] `crates/tpt-proof/examples/first_proof.rs` (kernel setup, tactics, `qed`, dependency report, Lean export; its Lean output is checked by `lean`) and `induction.rs` (addition by recursion, then induction; not exported to Lean, which does not translate induction yet)
-- [ ] Verified-Rust gallery built from the MIR fixtures (`clamp`, `safe_div`, `binary_search`, `ring_buffer`), each with expected CLI output and a note on reading the counterexample
+- [ ] Verified-Rust gallery (`examples/gallery`, `docs/src/gallery.md`): `clamp`, `safe_div` and `count_up` are written, with the CLI output and a note on reading each counterexample. `binary_search` and `ring_buffer` wait for array bounds in the translator
 - [ ] `cargo generate` template (`templates/verified-crate`): macros, toolchain pin, CI workflow, example contract, pre-commit hook
 - [ ] GitHub Action `tpt-proof/verify` and a pre-commit hook
 - [x] Finish the mdBook: tutorial (contract, counterexample, fix, kernel-checked), cookbook, "what is trusted" page (docs/src/tutorial.md, cookbook.md, trusted.md; the cookbook recipes are tests in `crates/tpt-proof/tests/docs_examples.rs`)
