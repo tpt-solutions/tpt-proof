@@ -204,3 +204,9 @@ The last item is why `0 <= x mod 4 < 4` is proved by the solver but not by the k
 Z3 proves `0 <= x mod 4 < 4` by rewriting each comparison to `true`, or `4 <= x mod 4` to `false`. The reflection now refutes such a comparison, or its negation, from the division laws. For each `t mod k` with a positive numeral `k`, it applies `mod_nonneg` and `mod_lt_divisor` to `t` and `k`, with the ground proof of `0 < k`. These facts are added as premises of a Farkas certificate, whose coefficients are 0 or 1. The search tries each choice and the kernel checks the one that works. The Farkas rule now also accepts strict comparisons, since over the integers `t < s` is `t + 1 <= s`.
 
 Across the 35 fixtures, 39 of 53 solver proofs are kernel-checked, and 14 are not. The remaining 14 are the same kinds as before, less the two remainder rewrites: 8 `th-lemma` steps, 2 Farkas lemmas with premise proofs in their arguments, 2 `ite` terms from signed division, one comparison that scales by a constant, and one equation normalization.
+
+### Sixth slice: bound-propagation lemmas
+
+Z3's `assign-bounds` lemma is a clause over bounds on integers. Its printed coefficients (`1 -1`) do not match the literals and do not follow the Farkas convention, so they are not used. The reflection negates the clause, and searches for a certificate whose coefficients are 0 or 1. The kernel checks each attempt, and the first that refutes the negated clause is used. The loop fixture's bound assertions are now kernel-checked.
+
+Across the 35 fixtures, 41 of 53 solver proofs are kernel-checked, and 12 are not. The remaining 12 are 3 `triangle-eq` lemmas (equalities, not yet a Farkas clause), 3 indexed rules with a short head that the reflection does not recognize, 2 theory lemmas with premise proofs in their arguments, 2 `ite` terms, one comparison that scales by a constant, and one equation normalization.

@@ -293,18 +293,30 @@ impl Translator<'_> {
     /// clause of integer comparisons, with one coefficient per literal.
     fn indexed_rule(&self, head: &[Sexp], args: &[Sexp]) -> Result<Step, ReflectError> {
         let atom = atom_text;
-        let is_farkas = matches!(
+        let is_th_lemma = matches!(
             head,
-            [first, second, third, fourth, ..]
+            [first, second, third, _, ..]
                 if atom(first) == Some("_")
                     && atom(second) == Some("th-lemma")
                     && atom(third) == Some("arith")
-                    && atom(fourth) == Some("farkas")
         );
-        if !is_farkas {
+        let kind = head.get(3).and_then(atom);
+        if !is_th_lemma || !matches!(kind, Some("farkas" | "assign-bounds")) {
             return Err(ReflectError::Unsupported(
                 "an indexed rule such as `th-lemma`".to_string(),
             ));
+        }
+        let [clause] = args else {
+            // Z3 can also put premise proofs in the argument list of a lemma. Those
+            // are not decoded, so the step is reported as unsupported.
+            return Err(ReflectError::Unsupported(
+                "a theory lemma with premise proofs in its arguments".to_string(),
+            ));
+        };
+        if kind == Some("assign-bounds") {
+            // Z3's coefficients for bound propagation do not follow the Farkas
+            // convention, so the clause is refuted by a search over 0/1 coefficients.
+            return self.farkas_lemma(None, clause);
         }
         let coefficients = head[4..]
             .iter()
@@ -318,14 +330,7 @@ impl Translator<'_> {
                     })
             })
             .collect::<Result<Vec<_>, _>>()?;
-        let [clause] = args else {
-            // Z3 can also put premise proofs in the argument list of a lemma. Those
-            // are not decoded, so the step is reported as unsupported.
-            return Err(ReflectError::Unsupported(
-                "a Farkas lemma with premise proofs in its arguments".to_string(),
-            ));
-        };
-        self.farkas_lemma(&coefficients, clause)
+        self.farkas_lemma(Some(&coefficients), clause)
     }
 
     /// Proves a clause `L_1 or ... or L_n` by a Farkas certificate. Each literal
@@ -333,18 +338,24 @@ impl Translator<'_> {
     /// premises of [`ProofTerm::Farkas`], which the kernel checks, and the
     /// tautology `(not L_1 -> ... -> false) -> clause` turns the refutation into
     /// the clause.
-    fn farkas_lemma(&self, coefficients: &[i128], clause: &Sexp) -> Result<Step, ReflectError> {
+    fn farkas_lemma(
+        &self,
+        coefficients: Option<&[i128]>,
+        clause: &Sexp,
+    ) -> Result<Step, ReflectError> {
         let conclusion = self.formula(clause)?;
         let literals = match &conclusion {
             Formula::Or(items) => items.clone(),
             other => vec![other.clone()],
         };
-        if literals.len() != coefficients.len() {
-            return Err(ReflectError::Malformed(format!(
-                "a Farkas lemma has {} literal(s) and {} coefficient(s)",
-                literals.len(),
-                coefficients.len()
-            )));
+        if let Some(given) = coefficients {
+            if literals.len() != given.len() {
+                return Err(ReflectError::Malformed(format!(
+                    "a Farkas lemma has {} literal(s) and {} coefficient(s)",
+                    literals.len(),
+                    given.len()
+                )));
+            }
         }
         let mut negations = Vec::new();
         for literal in &literals {
@@ -374,11 +385,38 @@ impl Translator<'_> {
         // The encoding of `not (t <= s)` is `(t <= s) -> false`, the form the
         // kernel reads as a linear constraint.
         let premises: Vec<Prop> = negations.iter().map(Formula::encode).collect();
-        let certificate = ProofTerm::Farkas(premises, coefficients.to_vec());
+        let certificate = match coefficients {
+            Some(given) => ProofTerm::Farkas(premises, given.to_vec()),
+            None => self.searched_certificate(premises, &refutation)?,
+        };
         let lemma = Formula::Imp(Box::new(refutation), Box::new(conclusion.clone()));
         Ok((
             ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(certificate)),
             conclusion,
+        ))
+    }
+
+    /// The first certificate with coefficients 0 or 1 that the kernel accepts as a
+    /// proof of `refutation`. The kernel checks each attempt, so the search cannot
+    /// make a false lemma accepted.
+    fn searched_certificate(
+        &self,
+        premises: Vec<Prop>,
+        refutation: &Formula,
+    ) -> Result<ProofTerm, ReflectError> {
+        let count = premises.len();
+        let claim = refutation.encode();
+        for mask in 0..(1u64 << count.min(16)) {
+            let coefficients: Vec<i128> =
+                (0..count).map(|bit| ((mask >> bit) & 1) as i128).collect();
+            let certificate = ProofTerm::Farkas(premises.clone(), coefficients);
+            if self.kernel.check_proof(&certificate, &claim).is_ok() {
+                return Ok(certificate);
+            }
+        }
+        Err(ReflectError::Unsupported(
+            "a theory lemma that linear arithmetic does not refute with 0/1 coefficients"
+                .to_string(),
         ))
     }
 

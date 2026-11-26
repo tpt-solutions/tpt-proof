@@ -415,3 +415,18 @@ fn a_ring_buffer_write_at_a_modulo_index_is_in_bounds() {
     );
     assert_eq!(exit_code_for("ring_write.rs"), Some(0));
 }
+
+#[test]
+fn a_loop_bound_assertion_is_kernel_checked_in_proof_mode() {
+    // The bounds of the loop counter are bound-propagation lemmas, which the
+    // reflection refutes by linear arithmetic. The kernel accepts them only in proof mode.
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let output = Command::new(env!("CARGO_BIN_EXE_tpt-proof-mir"))
+        .arg(format!("{manifest}/tests/fixtures/loop_verified.rs"))
+        .env("TPT_PROOF_VERIFY", "1")
+        .output()
+        .expect("run the driver");
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(report.contains("assertion at bb2: proved (kernel-checked)"), "{report}");
+    assert!(report.contains("assertion at bb3: proved (kernel-checked)"), "{report}");
+}
