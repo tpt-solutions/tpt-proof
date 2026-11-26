@@ -468,9 +468,17 @@ impl Translator<'_> {
     ) -> Result<ProofTerm, ReflectError> {
         let count = premises.len();
         let claim = refutation.encode();
-        for mask in 0..(1u64 << count.min(16)) {
-            let coefficients: Vec<i128> =
-                (0..count).map(|bit| ((mask >> bit) & 1) as i128).collect();
+        // Coefficients 0, 1 and 2 for at most four premises, else 0 and 1.
+        let top: u64 = if count <= 4 { 2 } else { 1 };
+        let total = (top + 1).pow(count as u32);
+        for mut index in 0..total {
+            let coefficients: Vec<i128> = (0..count)
+                .map(|_| {
+                    let digit = index % (top + 1);
+                    index /= top + 1;
+                    digit as i128
+                })
+                .collect();
             let certificate = ProofTerm::Farkas(premises.clone(), coefficients);
             if self.kernel.check_proof(&certificate, &claim).is_ok() {
                 return Ok(certificate);
@@ -783,10 +791,12 @@ impl Translator<'_> {
                 let forward_proof = self
                     .linear_proof(&forward)
                     .or_else(|| self.axiom_instance(&forward.encode()))
+                    .or_else(|| self.comparison_implication(left, right))
                     .ok_or_else(|| unsupported_rewrite(&conclusion))?;
                 let backward_proof = self
                     .linear_proof(&backward)
                     .or_else(|| self.axiom_instance(&backward.encode()))
+                    .or_else(|| self.comparison_implication(right, left))
                     .ok_or_else(|| unsupported_rewrite(&conclusion))?;
                 consequence(
                     vec![(forward_proof, forward), (backward_proof, backward)],
@@ -1078,6 +1088,54 @@ impl Translator<'_> {
             }
             _ => None,
         }
+    }
+
+    /// `A -> B` for two integer comparisons, by linear arithmetic: `B` is refuted
+    /// together with `A` when `A` is assumed and `not B` is a premise, so `A ->
+    /// not not B` is a Farkas certificate, and `not not B -> B` is a tautology.
+    /// This covers integer rounding, such as `2 * x <= 255` gives `x <= 127`.
+    fn comparison_implication(&self, from: &Formula, to: &Formula) -> Option<ProofTerm> {
+        let (Formula::Atom(from), Formula::Atom(to)) = (from, to) else {
+            return None;
+        };
+        let comparable =
+            |prop: &Prop| matches!(prop, Prop::Pred(symbol, _) if symbol == "<=" || symbol == "<");
+        if !comparable(from) || !comparable(to) {
+            return None;
+        }
+        let negated = Formula::Not(Box::new(Formula::Atom(to.clone())));
+        let refutation = Formula::Imp(
+            Box::new(Formula::Atom(from.clone())),
+            Box::new(Formula::Imp(
+                Box::new(negated.clone()),
+                Box::new(Formula::Const(false)),
+            )),
+        );
+        let certificate = self
+            .searched_certificate(vec![from.clone(), negated.encode()], &refutation)
+            .ok()?;
+        let double_negation =
+            Formula::Not(Box::new(Formula::Not(Box::new(Formula::Atom(to.clone())))));
+        let proof = ProofTerm::Lam(
+            "#h".to_string(),
+            Formula::Atom(from.clone()).encode(),
+            Box::new(ProofTerm::App(
+                Box::new(ProofTerm::Taut(Formula::Imp(
+                    Box::new(double_negation),
+                    Box::new(Formula::Atom(to.clone())),
+                ))),
+                Box::new(ProofTerm::App(
+                    Box::new(certificate),
+                    Box::new(ProofTerm::Var("#h".to_string())),
+                )),
+            )),
+        );
+        let claim = Formula::Imp(
+            Box::new(Formula::Atom(from.clone())),
+            Box::new(Formula::Atom(to.clone())),
+        )
+        .encode();
+        self.kernel.check_proof(&proof, &claim).ok().map(|_| proof)
     }
 
     /// `t <= s -> t' <= s'` by the linear equivalence rule, when both sides are

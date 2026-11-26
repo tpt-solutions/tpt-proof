@@ -216,3 +216,9 @@ Across the 35 fixtures, 41 of 53 solver proofs are kernel-checked, and 12 are no
 A bare `(_ th-lemma arith)` clause that states the Euclidean identity `t = k * (t div k) + (t mod k)` among `false` literals is now reconstructed as an instance of the `div_mod_euclid` axiom, with `0 < k` by evaluation. No new axiom is needed. The count of solver proofs is unchanged at 41 of 53: the lemma is accepted where it occurs, but the fixtures' other obstacles are still there.
 
 The `triangle-eq` lemmas were investigated and not reconstructed. The simple form, `a = b`, or `not (a <= b)`, or `not (b <= a)`, needs the antisymmetry of the integers, which is not a consequence of the existing axioms. A version of that axiom was tried and then removed: it did not change any fixture's result, and it would add a trusted axiom without a review. The other form, with a `not (a = b)` literal, has not been decoded.
+
+### Eighth slice: integer rounding by Farkas certificates
+
+An equivalence of two comparisons that differ in scale, such as `2 * x <= 255` and `x <= 127`, is now proved in each direction by linear arithmetic. The implication `A -> B` assumes `A` and refutes `not B` with a certificate whose coefficients are 0, 1 or 2, then applies double negation. The search tries up to three coefficient choices per premise when there are at most four premises. The kernel checks each attempt, so the search cannot make a false equivalence accepted. No new axiom.
+
+Across the 35 fixtures, 42 of 53 solver proofs are kernel-checked, and 11 are not. The remaining 11 are 3 indexed rules with a short head the reflection does not recognize, 5 theory lemmas with premise proofs in their arguments, 2 `ite` terms from signed division, and 1 equation rewritten to a conjunction. The last one needs equality reasoning that is not yet in the kernel without an axiom.

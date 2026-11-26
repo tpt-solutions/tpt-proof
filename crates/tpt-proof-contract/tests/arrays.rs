@@ -132,3 +132,25 @@ fn a_remainder_by_a_positive_divisor_is_in_range_through_the_kernel() {
         other => panic!("expected Verified, got {other:?}"),
     }
 }
+
+#[test]
+fn integer_rounding_of_a_scaled_bound_is_kernel_checked() {
+    if tools::skip_unless("z3") {
+        return;
+    }
+    // Over the integers, 2 * x <= 255 gives x <= 127. Linear arithmetic refutes
+    // x >= 128 with 2 * (x - 127) and the bound, using the coefficient 2.
+    let vc = Vc {
+        name: "scaled bound".to_string(),
+        vars: vec![("x".to_string(), Sort::Int)],
+        assumptions: vec![Expr::Le(
+            Box::new(Expr::Mul(Box::new(int(2)), Box::new(var("x")))),
+            Box::new(int(255)),
+        )],
+        goal: Expr::Le(Box::new(var("x")), Box::new(int(127))),
+    };
+    match tpt_proof_contract::verify(&vc, &SolverConfig::default()) {
+        Outcome::Verified => {}
+        other => panic!("expected Verified, got {other:?}"),
+    }
+}

@@ -21,6 +21,7 @@ and nothing is published yet.
 
 ### Added
 
+- Reflection: an equivalence between comparisons that differ in scale, such as `2 * x <= 255` and `x <= 127`, is proved in each direction by a Farkas certificate with coefficients 0 to 2. No new axiom. 42 of 53 solver proofs are now kernel-checked.
 - Reflection: bound-propagation lemmas (`assign-bounds`) are refuted by a search over 0/1 coefficients, and the kernel checks each attempt. 41 of 53 solver proofs across the 35 fixtures are now kernel-checked.
 - Kernel: the Farkas rule accepts strict comparisons. Reflection refutes comparisons on remainders from the division laws: 39 of 53 solver proofs across the 35 fixtures are now kernel-checked.
 - Kernel: integer division and remainder (`div`, `mod`, with Euclidean axioms for a positive divisor) and integer arrays (`select`, `store`, `const_array`, with the array laws). Trusted axioms, recorded in `kernel/AUDIT.md`. Proof mode now checks array terms and the division laws: 38 of 53 solver proofs across the 35 fixtures are kernel-checked.
