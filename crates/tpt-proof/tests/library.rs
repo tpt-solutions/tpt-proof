@@ -300,5 +300,6 @@ fn tautologies_and_the_standard_integers_save_and_load() {
         loaded.theorem("two_plus_three").map(|t| t.prop()),
         Some(&lemmas[1].prop)
     );
+
     assert_eq!(loaded.axioms().count(), 8);
 }

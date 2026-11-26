@@ -293,6 +293,19 @@ impl Translator<'_> {
     /// clause of integer comparisons, with one coefficient per literal.
     fn indexed_rule(&self, head: &[Sexp], args: &[Sexp]) -> Result<Step, ReflectError> {
         let atom = atom_text;
+        // A bare `(_ th-lemma arith)` states an arithmetic fact without a kind.
+        if matches!(
+            head,
+            [first, second, third]
+                if atom(first) == Some("_") && atom(second) == Some("th-lemma") && atom(third) == Some("arith")
+        ) {
+            return match args {
+                [clause] => self.euclid_lemma(clause),
+                _ => Err(ReflectError::Unsupported(
+                    "a theory lemma with premise proofs in its arguments".to_string(),
+                )),
+            };
+        }
         let is_th_lemma = matches!(
             head,
             [first, second, third, _, ..]
@@ -338,6 +351,55 @@ impl Translator<'_> {
     /// premises of [`ProofTerm::Farkas`], which the kernel checks, and the
     /// tautology `(not L_1 -> ... -> false) -> clause` turns the refutation into
     /// the clause.
+    /// A bare `(_ th-lemma arith)` clause that states the Euclidean identity of a
+    /// remainder: `t = k * (t div k) + (t mod k)` among `false` literals. It is
+    /// the instance of `div_mod_euclid` at `t` and `k`, with `0 < k` by evaluation.
+    fn euclid_lemma(&self, clause: &Sexp) -> Result<Step, ReflectError> {
+        let conclusion = self.formula(clause)?;
+        let literals = match &conclusion {
+            Formula::Or(items) => items.clone(),
+            other => vec![other.clone()],
+        };
+        for literal in &literals {
+            let Formula::Atom(Prop::Eq(a, b)) = literal else {
+                continue;
+            };
+            let Some((k, quotient, remainder)) = euclid_parts(b) else {
+                continue;
+            };
+            if quotient != Term::app("div", vec![a.clone(), k.clone()])
+                || remainder != Term::app("mod", vec![a.clone(), k.clone()])
+            {
+                continue;
+            }
+            let positive = Formula::Atom(Prop::Pred(
+                "<".to_string(),
+                vec![Term::constant("0"), k.clone()],
+            ));
+            let instance = ProofTerm::App(
+                Box::new(ProofTerm::IndApp(
+                    Box::new(ProofTerm::IndApp(
+                        Box::new(ProofTerm::Axiom("div_mod_euclid".to_string())),
+                        a.clone(),
+                    )),
+                    k,
+                )),
+                Box::new(ProofTerm::Taut(positive)),
+            );
+            let lemma = Formula::Imp(
+                Box::new(Formula::Atom(Prop::Eq(a.clone(), b.clone()))),
+                Box::new(conclusion.clone()),
+            );
+            return Ok((
+                ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(instance)),
+                conclusion,
+            ));
+        }
+        Err(ReflectError::Unsupported(
+            "a theory lemma of another shape".to_string(),
+        ))
+    }
+
     fn farkas_lemma(
         &self,
         coefficients: Option<&[i128]>,
@@ -1318,6 +1380,34 @@ fn collect_remainders(term: &Term, out: &mut Vec<(Term, String)>) {
         }
         args.iter().for_each(|arg| collect_remainders(arg, out));
     }
+}
+
+/// Reads `k * (t div k) + (t mod k)` into its divisor, quotient and remainder.
+fn euclid_parts(term: &Term) -> Option<(Term, Term, Term)> {
+    let Term::Fun(sum, parts) = term else {
+        return None;
+    };
+    let [product, remainder] = parts.as_slice() else {
+        return None;
+    };
+    let (Term::Fun(times, factors), "+") = (product, sum.as_str()) else {
+        return None;
+    };
+    let [k, quotient] = factors.as_slice() else {
+        return None;
+    };
+    if times != "*" {
+        return None;
+    }
+    // The remainder is `mod(t, k)`, and the quotient `div(t, k)`, with the
+    // same `t` and `k` checked by the caller.
+    let Term::Fun(name, _) = remainder else {
+        return None;
+    };
+    if name != "mod" {
+        return None;
+    }
+    Some((k.clone(), quotient.clone(), remainder.clone()))
 }
 
 #[cfg(test)]

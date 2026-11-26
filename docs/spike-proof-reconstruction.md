@@ -210,3 +210,9 @@ Across the 35 fixtures, 39 of 53 solver proofs are kernel-checked, and 14 are no
 Z3's `assign-bounds` lemma is a clause over bounds on integers. Its printed coefficients (`1 -1`) do not match the literals and do not follow the Farkas convention, so they are not used. The reflection negates the clause, and searches for a certificate whose coefficients are 0 or 1. The kernel checks each attempt, and the first that refutes the negated clause is used. The loop fixture's bound assertions are now kernel-checked.
 
 Across the 35 fixtures, 41 of 53 solver proofs are kernel-checked, and 12 are not. The remaining 12 are 3 `triangle-eq` lemmas (equalities, not yet a Farkas clause), 3 indexed rules with a short head that the reflection does not recognize, 2 theory lemmas with premise proofs in their arguments, 2 `ite` terms, one comparison that scales by a constant, and one equation normalization.
+
+### Seventh slice: bare Euclidean lemmas, and the `triangle-eq` investigation
+
+A bare `(_ th-lemma arith)` clause that states the Euclidean identity `t = k * (t div k) + (t mod k)` among `false` literals is now reconstructed as an instance of the `div_mod_euclid` axiom, with `0 < k` by evaluation. No new axiom is needed. The count of solver proofs is unchanged at 41 of 53: the lemma is accepted where it occurs, but the fixtures' other obstacles are still there.
+
+The `triangle-eq` lemmas were investigated and not reconstructed. The simple form, `a = b`, or `not (a <= b)`, or `not (b <= a)`, needs the antisymmetry of the integers, which is not a consequence of the existing axioms. A version of that axiom was tried and then removed: it did not change any fixture's result, and it would add a trusted axiom without a review. The other form, with a `not (a = b)` literal, has not been decoded.
