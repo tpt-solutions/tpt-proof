@@ -314,7 +314,7 @@ impl Translator<'_> {
                     && atom(third) == Some("arith")
         );
         let kind = head.get(3).and_then(atom);
-        if !is_th_lemma || !matches!(kind, Some("farkas" | "assign-bounds")) {
+        if !is_th_lemma || !matches!(kind, Some("farkas" | "assign-bounds" | "triangle-eq")) {
             return Err(ReflectError::Unsupported(
                 "an indexed rule such as `th-lemma`".to_string(),
             ));
@@ -329,6 +329,9 @@ impl Translator<'_> {
                 "a theory lemma with premise proofs in its arguments".to_string(),
             ));
         };
+        if kind == Some("triangle-eq") {
+            return self.triangle_eq_lemma(clause);
+        }
         if kind == Some("assign-bounds") {
             // Z3's coefficients for bound propagation do not follow the Farkas
             // convention, so the clause is refuted by a search over 0/1 coefficients.
@@ -416,6 +419,191 @@ impl Translator<'_> {
             ProofTerm::App(Box::new(acc), Box::new(premise))
         });
         Ok((proof, Formula::Const(false)))
+    }
+
+    /// The `triangle-eq` form with a disequality: `not (a = b)`, or `0 <= a + (-1)*b`.
+    /// Under `a = b` the second literal holds, because `0 <= b + (-1)*b` is a linear
+    /// fact, and the equation moves it to `a`. The Leibniz rule does the move.
+    fn eq_relaxation_lemma(&self, conclusion: &Formula) -> Result<Step, ReflectError> {
+        let unsupported =
+            || ReflectError::Unsupported("a `triangle-eq` lemma of another shape".to_string());
+        let Formula::Or(literals) = conclusion else {
+            return Err(unsupported());
+        };
+        let negate_one = || Term::app("neg", vec![Term::constant("1")]);
+        for literal in literals {
+            let Formula::Not(inner) = literal else {
+                continue;
+            };
+            let Formula::Atom(Prop::Eq(a, b)) = &**inner else {
+                continue;
+            };
+            let relaxed = Prop::Pred(
+                "<=".to_string(),
+                vec![
+                    Term::constant("0"),
+                    Term::app(
+                        "+",
+                        vec![a.clone(), Term::app("*", vec![negate_one(), b.clone()])],
+                    ),
+                ],
+            );
+            let listed = literals
+                .iter()
+                .any(|other| matches!(other, Formula::Atom(p) if *p == relaxed));
+            if !listed {
+                continue;
+            }
+            let motive = Prop::Pred(
+                "<=".to_string(),
+                vec![
+                    Term::constant("0"),
+                    Term::app(
+                        "+",
+                        vec![
+                            Term::var(MOTIVE),
+                            Term::app("*", vec![negate_one(), b.clone()]),
+                        ],
+                    ),
+                ],
+            );
+            // `0 <= b + (-1)*b`, proved by refuting its negation with the Farkas rule.
+            let closed = Prop::Pred(
+                "<=".to_string(),
+                vec![
+                    Term::constant("0"),
+                    Term::app(
+                        "+",
+                        vec![b.clone(), Term::app("*", vec![negate_one(), b.clone()])],
+                    ),
+                ],
+            );
+            let negated = Formula::Not(Box::new(Formula::Atom(closed.clone())));
+            let refutation = ProofTerm::Farkas(vec![negated.encode()], vec![1]);
+            let closed_proof = ProofTerm::App(
+                Box::new(ProofTerm::Taut(Formula::Imp(
+                    Box::new(Formula::Not(Box::new(negated.clone()))),
+                    Box::new(Formula::Atom(closed.clone())),
+                ))),
+                Box::new(refutation),
+            );
+            self.kernel
+                .check_proof(&closed_proof, &closed)
+                .map_err(|_| unsupported())?;
+            let relax = ProofTerm::Lam(
+                HYPOTHESIS.to_string(),
+                Formula::Atom(Prop::Eq(a.clone(), b.clone())).encode(),
+                Box::new(ProofTerm::Leibniz(
+                    MOTIVE.to_string(),
+                    motive,
+                    Box::new(ProofTerm::Sym(Box::new(ProofTerm::Var(
+                        HYPOTHESIS.to_string(),
+                    )))),
+                    Box::new(closed_proof),
+                )),
+            );
+            let lemma = Formula::Imp(
+                Box::new(Formula::Imp(
+                    Box::new(Formula::Atom(Prop::Eq(a.clone(), b.clone()))),
+                    Box::new(Formula::Atom(relaxed)),
+                )),
+                Box::new(conclusion.clone()),
+            );
+            return Ok((
+                ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(relax)),
+                conclusion.clone(),
+            ));
+        }
+        Err(unsupported())
+    }
+
+    /// A `triangle-eq` lemma: `a = b`, or `not (a <= b)`, or `not (b <= a)`. The
+    /// antisymmetry law of the integers, `a <= b -> b <= a -> a = b`, is the axiom
+    /// `le_antisymm`. A tautology turns it into the clause, with the two
+    /// inequalities as letters.
+    fn triangle_eq_lemma(&self, clause: &Sexp) -> Result<Step, ReflectError> {
+        let conclusion = self.formula(clause)?;
+        if let Ok(step) = self.eq_relaxation_lemma(&conclusion) {
+            return Ok(step);
+        }
+        let unsupported =
+            || ReflectError::Unsupported("a `triangle-eq` lemma of another shape".to_string());
+        let Formula::Or(literals) = &conclusion else {
+            return Err(unsupported());
+        };
+        let equation = literals.iter().find_map(|literal| match literal {
+            Formula::Atom(Prop::Eq(a, b)) => Some((a.clone(), b.clone())),
+            _ => None,
+        });
+        let inequalities: Vec<(Term, Term)> = literals
+            .iter()
+            .filter_map(|literal| match literal {
+                Formula::Not(inner) => match &**inner {
+                    Formula::Atom(Prop::Pred(symbol, args)) if symbol == "<=" => {
+                        match args.as_slice() {
+                            [a, b] => Some((a.clone(), b.clone())),
+                            _ => None,
+                        }
+                    }
+                    _ => None,
+                },
+                _ => None,
+            })
+            .collect();
+        let (Some((ea, eb)), 2, 3) = (equation, inequalities.len(), literals.len()) else {
+            return Err(unsupported());
+        };
+        let (a, b) = inequalities[0].clone();
+        if inequalities[1] != (b.clone(), a.clone())
+            || !((ea == a && eb == b) || (ea == b && eb == a))
+        {
+            return Err(unsupported());
+        }
+        let forward = Prop::Pred("<=".to_string(), vec![a.clone(), b.clone()]);
+        let backward = Prop::Pred("<=".to_string(), vec![b.clone(), a.clone()]);
+        let instance = ProofTerm::IndApp(
+            Box::new(ProofTerm::IndApp(
+                Box::new(ProofTerm::Axiom("le_antisymm".to_string())),
+                a.clone(),
+            )),
+            b.clone(),
+        );
+        let body = ProofTerm::App(
+            Box::new(ProofTerm::App(
+                Box::new(instance),
+                Box::new(ProofTerm::Var("#p".to_string())),
+            )),
+            Box::new(ProofTerm::Var("#q".to_string())),
+        );
+        let body = if ea == a {
+            body
+        } else {
+            ProofTerm::Sym(Box::new(body))
+        };
+        let antecedent = ProofTerm::Lam(
+            "#p".to_string(),
+            Formula::Atom(forward.clone()).encode(),
+            Box::new(ProofTerm::Lam(
+                "#q".to_string(),
+                Formula::Atom(backward.clone()).encode(),
+                Box::new(body),
+            )),
+        );
+        let equal = Formula::Atom(Prop::Eq(ea, eb));
+        let lemma = Formula::Imp(
+            Box::new(Formula::Imp(
+                Box::new(Formula::Atom(forward)),
+                Box::new(Formula::Imp(
+                    Box::new(Formula::Atom(backward)),
+                    Box::new(equal),
+                )),
+            )),
+            Box::new(conclusion.clone()),
+        );
+        Ok((
+            ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(antecedent)),
+            conclusion,
+        ))
     }
 
     /// A bare `(_ th-lemma arith)` clause that states the Euclidean identity of a

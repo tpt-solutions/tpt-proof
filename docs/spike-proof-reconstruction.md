@@ -232,3 +232,11 @@ Across the 35 fixtures, 44 of 53 solver proofs are kernel-checked, and 9 are not
 ### Tenth slice: division-law literals in theory lemmas
 
 A bare theory lemma whose only true literal is a division-law fact, a remainder that is not negative or that is below its divisor, is reconstructed from the axiom instance. Two lemmas of this shape were the "theory lemma of another shape" failures. The assertions they belong to still depend on a `triangle-eq` lemma, so the count of kernel-checked solver proofs stays at 44 of 53. The remaining blockers are the `triangle-eq` lemmas with a `not (a = b)` literal, which are the same antisymmetry question as before.
+
+### Eleventh slice: the antisymmetry axiom, and the disequality form of triangle-eq
+
+The kernel now has the integer axiom `le_antisymm` (`x <= y -> y <= x -> x = y`). It was added in its own change, after the maintainer approved it for review; its justification is in `kernel/AUDIT.md`. With it, the simple `triangle-eq` lemma (`a = b`, or `not (a <= b)`, or `not (b <= a)`) is reconstructed as an instance of the axiom.
+
+The second form of `triangle-eq` has a disequality, `not (a = b)`, with `0 <= a + (-1)*b`. Under `a = b` the second literal follows: `0 <= b + (-1)*b` is a linear fact, refuted by the Farkas rule, and the equation moves it to `a` by the Leibniz rule. No further axiom.
+
+Across the 35 fixtures, 46 of 53 solver proofs are kernel-checked, and 7 are not. The remaining 7 are 3 `hypothesis` steps (Z3 introduces an assumption inside a sub-proof, which the reflection does not yet discharge), 2 `ite` terms from signed division, 1 equation rewritten to a conjunction, and 1 indexed rule with a short head.
