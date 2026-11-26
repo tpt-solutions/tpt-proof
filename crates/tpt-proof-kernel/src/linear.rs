@@ -56,9 +56,14 @@ impl Linear {
         Some(out)
     }
 }
-
-/// The linear form of an integer term, or `None` if it is not linear.
+/// The linear form of an integer term. A term that is not linear, such as a
+/// product of two variables, a `div` or `mod`, or an array read, is an opaque
+/// unknown integer: the form treats it as a variable named by the term. Equal
+/// opaque terms are the same variable, and no other fact is assumed, so every
+/// identity or contradiction found this way holds for every integer value of
+/// the opaque terms. `None` only when a coefficient overflows.
 pub(crate) fn linear(term: &Term) -> Option<Linear> {
+    let opaque = || Some(Linear::variable(&format!("{term:?}")));
     match term {
         Term::Var(_) => None,
         Term::Fun(symbol, args) => match (symbol.as_str(), args.as_slice()) {
@@ -67,21 +72,15 @@ pub(crate) fn linear(term: &Term) -> Option<Linear> {
             ("neg", [a]) => linear(a)?.scale(-1),
             ("+", [a, b]) => linear(a)?.add(&linear(b)?, 1),
             ("-", [a, b]) => linear(a)?.add(&linear(b)?, -1),
-            ("*", [a, b]) => {
-                let (left, right) = (linear(a)?, linear(b)?);
-                if left.is_constant() {
-                    right.scale(left.constant)
-                } else if right.is_constant() {
-                    left.scale(right.constant)
-                } else {
-                    None
-                }
-            }
-            _ => None,
+            ("*", [a, b]) => match (linear(a), linear(b)) {
+                (Some(left), Some(right)) if left.is_constant() => right.scale(left.constant),
+                (Some(left), Some(right)) if right.is_constant() => left.scale(right.constant),
+                _ => opaque(),
+            },
+            _ => opaque(),
         },
     }
 }
-
 /// The constraint `f <= 0` that a premise states, or `None` if it has another shape.
 pub(crate) fn constraint(premise: &Prop) -> Option<Linear> {
     match premise {

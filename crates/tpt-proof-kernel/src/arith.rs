@@ -41,6 +41,8 @@ pub(crate) fn eval_term(term: &Term) -> Option<i128> {
             ("+", [a, b]) => eval_term(a)?.checked_add(eval_term(b)?),
             ("-", [a, b]) => eval_term(a)?.checked_sub(eval_term(b)?),
             ("*", [a, b]) => eval_term(a)?.checked_mul(eval_term(b)?),
+            ("div", [a, b]) => euclidean(eval_term(a)?, eval_term(b)?).map(|(q, _)| q),
+            ("mod", [a, b]) => euclidean(eval_term(a)?, eval_term(b)?).map(|(_, r)| r),
             _ => None,
         },
     }
@@ -59,4 +61,16 @@ pub(crate) fn eval_atom(prop: &Prop) -> Option<bool> {
         },
         _ => None,
     }
+}
+
+/// Euclidean division for a positive divisor: the quotient and the remainder with
+/// `a = b * q + r` and `0 <= r < b`. Other divisors are not evaluated, so the
+/// atom stays an unknown letter.
+pub(crate) fn euclidean(a: i128, b: i128) -> Option<(i128, i128)> {
+    if b <= 0 {
+        return None;
+    }
+    let r = a.rem_euclid(b);
+    let q = a.checked_sub(r)?.checked_div(b)?;
+    Some((q, r))
 }

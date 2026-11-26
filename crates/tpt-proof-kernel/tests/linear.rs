@@ -58,9 +58,13 @@ fn different_linear_forms_are_refused() {
 }
 
 #[test]
-fn a_non_linear_side_is_refused() {
+fn a_non_linear_term_is_an_opaque_integer() {
+    // x * y is not linear, so it is an unknown integer. The same product on both
+    // sides is the same unknown, but a different product is a different one.
     let product = Term::app("*", vec![c("x"), c("y")]);
-    assert!(prove(le(product.clone(), c("0")), le(product, c("0"))).is_err());
+    prove(le(product.clone(), c("0")), le(product.clone(), c("0"))).expect("the same atom");
+    let other = Term::app("*", vec![c("x"), c("z")]);
+    assert!(prove(le(product, c("0")), le(other, c("0"))).is_err());
 }
 
 #[test]
@@ -103,6 +107,8 @@ fn terms_with_the_same_linear_form_are_equal() {
 #[test]
 fn terms_with_different_linear_forms_are_refused() {
     assert!(identity(c("x"), Term::app("+", vec![c("x"), c("1")])).is_err());
-    let product = Term::app("*", vec![c("x"), c("x")]);
-    assert!(identity(product.clone(), product).is_err());
+    let square = Term::app("*", vec![c("x"), c("x")]);
+    let product = Term::app("*", vec![c("x"), c("y")]);
+    assert!(identity(square.clone(), product).is_err());
+    identity(square.clone(), square).expect("the same opaque term");
 }

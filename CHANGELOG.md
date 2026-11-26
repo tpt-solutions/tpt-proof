@@ -21,6 +21,7 @@ and nothing is published yet.
 
 ### Added
 
+- Kernel: integer division and remainder (`div`, `mod`, with Euclidean axioms for a positive divisor) and integer arrays (`select`, `store`, `const_array`, with the array laws). Trusted axioms, recorded in `kernel/AUDIT.md`. Proof mode now checks array terms and the division laws: 38 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Verification of arrays of integers. The MIR translator reads `[T; N]` values, element reads and writes, `[v; N]` and literal arrays, and rustc's bounds checks become assertions. The solver's array theory decides them. Proof mode does not yet check array terms; they are reported as unchecked.
 - The `auto` tactic: closes a goal by `assumption`, or else by `tauto`.
 - Kernel: two linear integer arithmetic rules, `ProofTerm::Linear` (equivalent normalized comparisons) and `ProofTerm::Farkas` (linear contradictions, the certificates of Z3's `th-lemma` clauses). Neither is an axiom; both are in `kernel/AUDIT.md`.

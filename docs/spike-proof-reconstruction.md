@@ -183,3 +183,18 @@ On the same 30 fixtures, the kernel now accepts 31 of 38 solver proofs (26 befor
 - 2 `th-lemma` steps of kind `assign-bounds`, a bound-propagation lemma whose coefficients are signed. The Farkas rule takes non-negative coefficients, and the sign convention of Z3's `assign-bounds` has not been decoded.
 - 1 `rewrite` that scales a comparison (`2 * x <= 255` to `x <= 127`), which needs integer rounding.
 - 1 `rewrite` of an equation to a conjunction of two comparisons (`x = 0` to `x <= 0 and 0 <= x`). It needs a derived rule from the equation to each conjunct.
+
+### Fourth slice: array laws and division
+
+The kernel now declares the array theory (`select`, `store`, `const_array` and three laws) and integer division (`div`, `mod` and three Euclidean laws for a positive divisor). Both are trusted axioms, listed in `kernel/AUDIT.md`, and both are used only when a checked proof needs them. The reflection translates `div`, `mod`, `select` and `store`, and it reads Z3's `true-axiom` and the symmetry of an equation. The linear rules now treat a non-linear term as an opaque integer, so an identity between two opaque terms can be checked.
+
+On the 30 original fixtures the kernel result is the same as before: 31 of 38 solver proofs. The five array and division fixtures add the rest. Across all 35 fixtures, 38 of 53 solver proofs are kernel-checked, and 15 are not. The remaining 15 are:
+
+- 8 `th-lemma` steps. The ones inspected are the `assign-bounds` kind described above. The others were not inspected, and may be array-theory lemmas.
+- 2 Farkas lemmas whose argument list includes premise proofs.
+- 2 translator terms that use `ite` (the signed division and remainder), which the kernel's terms do not have.
+- 1 `rewrite` that scales a comparison.
+- 1 `rewrite` that needs `mod` bounds as a fact about a comparison, for example `4 <= x mod 4` is false. The axioms state the bounds, but the reflection does not yet derive the comparison from them.
+- 1 normalization of an equation between linear terms, which is not yet reconstructed.
+
+The last item is why `0 <= x mod 4 < 4` is proved by the solver but not by the kernel. The test in `tests/arrays.rs` pins that state.

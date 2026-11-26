@@ -24,7 +24,7 @@ use std::collections::BTreeMap;
 use std::fmt;
 
 use tpt_proof_kernel::arith::INT;
-use tpt_proof_kernel::axioms::declare_standard;
+use tpt_proof_kernel::axioms::{declare_arrays, declare_division, declare_standard, ARRAY};
 use tpt_proof_kernel::formula::Formula;
 use tpt_proof_kernel::terms::{ProofTerm, Prop, Sort, Term};
 use tpt_proof_kernel::{Kernel, KernelError, Theorem};
@@ -68,9 +68,16 @@ fn hypothesis_name(index: usize) -> String {
 pub fn reconstruct(vc: &Vc, proof: &str) -> Result<Theorem, ReflectError> {
     let mut kernel = Kernel::new();
     declare_standard(&mut kernel).map_err(ReflectError::Rejected)?;
+    declare_division(&mut kernel).map_err(ReflectError::Rejected)?;
+    declare_arrays(&mut kernel).map_err(ReflectError::Rejected)?;
     let mut scope = Scope::default();
     for (name, sort) in &vc.vars {
         scope.sorts.insert(name.clone(), *sort);
+        if *sort == VcSort::IntArray {
+            kernel
+                .declare_function_sorted(name, Vec::new(), Sort::named(ARRAY))
+                .map_err(ReflectError::Rejected)?;
+        }
         if *sort == VcSort::Int {
             kernel
                 .declare_function_sorted(name, Vec::new(), Sort::named(INT))
@@ -164,6 +171,10 @@ impl Scope {
         self.sorts.get(name) == Some(&VcSort::Int)
     }
 
+    fn is_array_var(&self, name: &str) -> bool {
+        self.sorts.get(name) == Some(&VcSort::IntArray)
+    }
+
     fn is_bool_var(&self, name: &str) -> bool {
         self.sorts.get(name) == Some(&VcSort::Bool)
     }
@@ -172,7 +183,7 @@ impl Scope {
     fn is_int(&self, expr: &Expr) -> bool {
         match expr {
             Expr::Int(_) | Expr::Add(..) | Expr::Sub(..) | Expr::Mul(..) => true,
-            Expr::Div(..) | Expr::Rem(..) => true,
+            Expr::Div(..) | Expr::Rem(..) | Expr::Select(..) => true,
             Expr::Var(name) => self.is_int_var(name),
             Expr::Ite(_, then, _) => self.is_int(then),
             _ => false,
@@ -216,7 +227,15 @@ impl Scope {
                 vec![Term::constant(&value.unsigned_abs().to_string())],
             ),
             Expr::Int(value) => Term::constant(&value.to_string()),
-            Expr::Var(name) if self.is_int_var(name) => Term::constant(name),
+            Expr::Var(name) if self.is_int_var(name) || self.is_array_var(name) => {
+                Term::constant(name)
+            }
+            Expr::Div(a, b) => Term::app("div", vec![self.term(a)?, self.term(b)?]),
+            Expr::Rem(a, b) => Term::app("mod", vec![self.term(a)?, self.term(b)?]),
+            Expr::Select(a, i) => Term::app("select", vec![self.term(a)?, self.term(i)?]),
+            Expr::Store(a, i, v) => {
+                Term::app("store", vec![self.term(a)?, self.term(i)?, self.term(v)?])
+            }
             Expr::Add(a, b) => Term::app("+", vec![self.term(a)?, self.term(b)?]),
             Expr::Sub(a, b) => Term::app("-", vec![self.term(a)?, self.term(b)?]),
             Expr::Mul(a, b) => Term::app("*", vec![self.term(a)?, self.term(b)?]),
@@ -479,7 +498,7 @@ impl Translator<'_> {
             Sexp::Atom(name) => is_numeral(name) || self.scope.is_int_var(name),
             Sexp::List(items) => matches!(
                 items.first(),
-                Some(Sexp::Atom(head)) if head == "+" || head == "-" || head == "*"
+                Some(Sexp::Atom(head)) if matches!(head.as_str(), "+" | "-" | "*" | "div" | "mod" | "select")
             ),
         }
     }
@@ -487,14 +506,30 @@ impl Translator<'_> {
     /// Reads an integer term of the solver's text.
     fn term(&self, sexp: &Sexp) -> Result<Term, ReflectError> {
         match self.resolve(sexp) {
-            Sexp::Atom(name) if is_numeral(name) || self.scope.is_int_var(name) => {
+            Sexp::Atom(name)
+                if is_numeral(name)
+                    || self.scope.is_int_var(name)
+                    || self.scope.is_array_var(name) =>
+            {
                 Ok(Term::constant(name))
             }
             Sexp::List(items) => match items.split_first() {
                 Some((Sexp::Atom(head), [a])) if head == "-" => {
                     Ok(Term::app("neg", vec![self.term(a)?]))
                 }
-                Some((Sexp::Atom(head), args)) if matches!(head.as_str(), "+" | "-" | "*") => {
+                Some((Sexp::Atom(head), [array, index])) if head == "select" => Ok(Term::app(
+                    "select",
+                    vec![self.term(array)?, self.term(index)?],
+                )),
+                Some((Sexp::Atom(head), [array, index, value])) if head == "store" => {
+                    Ok(Term::app(
+                        "store",
+                        vec![self.term(array)?, self.term(index)?, self.term(value)?],
+                    ))
+                }
+                Some((Sexp::Atom(head), args))
+                    if matches!(head.as_str(), "+" | "-" | "*" | "div" | "mod") =>
+                {
                     let mut terms = args.iter().map(|arg| self.term(arg));
                     let first = terms.next().ok_or_else(|| {
                         ReflectError::Malformed(format!("`{head}` with no arguments"))
@@ -518,8 +553,14 @@ impl Translator<'_> {
         let conclusion = self.formula(conclusion)?;
         match rule {
             "asserted" => self.asserted(conclusion),
+            "true-axiom" if conclusion == Formula::Const(true) => {
+                Ok((ProofTerm::Taut(conclusion.clone()), conclusion))
+            }
             "rewrite" => self.rewrite(conclusion),
-            "commutativity" => self.equation_by_axiom(conclusion),
+            "commutativity" => match self.swapped_equivalence(conclusion.clone())? {
+                Some(step) => Ok(step),
+                None => self.equation_by_axiom(conclusion),
+            },
             _ => {
                 let mut steps = Vec::new();
                 for premise in premises {
@@ -536,6 +577,40 @@ impl Translator<'_> {
                 }
             }
         }
+    }
+
+    /// `(a = b) <-> (b = a)`, which holds by symmetry of equality. Each direction
+    /// is the symmetry of the equation, under a binder. `Ok(None)` when the
+    /// conclusion has another shape.
+    fn swapped_equivalence(&self, conclusion: Formula) -> Result<Option<Step>, ReflectError> {
+        let Formula::Iff(left, right) = &conclusion else {
+            return Ok(None);
+        };
+        let (Formula::Atom(Prop::Eq(a, b)), Formula::Atom(Prop::Eq(c, d))) = (&**left, &**right)
+        else {
+            return Ok(None);
+        };
+        if a != d || b != c {
+            return Ok(None);
+        }
+        let symmetric = |from: &Formula| {
+            ProofTerm::Lam(
+                HYPOTHESIS.to_string(),
+                from.encode(),
+                Box::new(ProofTerm::Sym(Box::new(ProofTerm::Var(
+                    HYPOTHESIS.to_string(),
+                )))),
+            )
+        };
+        let forward = Formula::Imp(left.clone(), right.clone());
+        let backward = Formula::Imp(right.clone(), left.clone());
+        let forward_proof = symmetric(left);
+        let backward_proof = symmetric(right);
+        consequence(
+            vec![(forward_proof, forward), (backward_proof, backward)],
+            conclusion,
+        )
+        .map(Some)
     }
 
     fn asserted(&self, formula: Formula) -> Result<Step, ReflectError> {
@@ -556,6 +631,9 @@ impl Translator<'_> {
     fn rewrite(&self, conclusion: Formula) -> Result<Step, ReflectError> {
         if matches!(&conclusion, Formula::Atom(Prop::Eq(t, s)) if t == s) {
             return self.refl(conclusion);
+        }
+        if let Some(step) = self.swapped_equivalence(conclusion.clone())? {
+            return Ok(step);
         }
         if self.proves_by_tautology(&conclusion) {
             return Ok((ProofTerm::Taut(conclusion.clone()), conclusion));

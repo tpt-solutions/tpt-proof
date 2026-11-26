@@ -130,3 +130,130 @@ fn for_all_int(names: &[&str], body: Prop) -> Prop {
         Prop::forall_sorted(name, Sort::named(INT), acc)
     })
 }
+
+/// The name of the sort of integer arrays.
+pub const ARRAY: &str = "IntArray";
+
+/// Declares integer division and remainder. `div` and `mod` are built-in
+/// operations (see [`crate::Kernel::new`]); their laws are the axioms here,
+/// which hold for a positive divisor. Declaring them again is a no-op.
+pub fn declare_division(kernel: &mut Kernel) -> Result<()> {
+    for (name, prop, justification) in division() {
+        if kernel.axiom(name).is_none() {
+            kernel.declare_axiom(name, prop, justification)?;
+        }
+    }
+    Ok(())
+}
+
+fn division() -> Vec<(&'static str, Prop, &'static str)> {
+    let positive = |body: Prop| Prop::imp(lt(zero(), y()), body);
+    vec![
+        (
+            "div_mod_euclid",
+            for_all_int(
+                &["x", "y"],
+                positive(Prop::Eq(
+                    x(),
+                    add(mul(y(), div(x(), y())), modulo(x(), y())),
+                )),
+            ),
+            "Euclidean division: for a positive divisor, the dividend is the divisor times the quotient plus the remainder.",
+        ),
+        (
+            "mod_nonneg",
+            for_all_int(&["x", "y"], positive(le(zero(), modulo(x(), y())))),
+            "The Euclidean remainder of a positive divisor is not negative.",
+        ),
+        (
+            "mod_lt_divisor",
+            for_all_int(&["x", "y"], positive(lt(modulo(x(), y()), y()))),
+            "The Euclidean remainder of a positive divisor is less than the divisor.",
+        ),
+    ]
+}
+
+/// Declares integer arrays: the sort [`ARRAY`], the functions `select`, `store`
+/// and `const_array`, and their laws. Declaring them again is a no-op.
+pub fn declare_arrays(kernel: &mut Kernel) -> Result<()> {
+    let array = || Sort::named(ARRAY);
+    let int = || Sort::named(INT);
+    if !kernel.sorts().any(|sort| sort == ARRAY) {
+        kernel.declare_sort(ARRAY)?;
+    }
+    if kernel.function_signature("select").is_none() {
+        kernel.declare_function_sorted("select", vec![array(), int()], int())?;
+        kernel.declare_function_sorted("store", vec![array(), int(), int()], array())?;
+        kernel.declare_function_sorted("const_array", vec![int()], array())?;
+    }
+    for (name, prop, justification) in array_laws() {
+        if kernel.axiom(name).is_none() {
+            kernel.declare_axiom(name, prop, justification)?;
+        }
+    }
+    Ok(())
+}
+
+fn array_laws() -> Vec<(&'static str, Prop, &'static str)> {
+    let array = || Sort::named(ARRAY);
+    let int = || Sort::named(INT);
+    let a = || Term::var("a");
+    let i = || Term::var("i");
+    let j = || Term::var("j");
+    let v = || Term::var("v");
+    let select = |array: Term, index: Term| Term::app("select", vec![array, index]);
+    let store =
+        |array: Term, index: Term, value: Term| Term::app("store", vec![array, index, value]);
+    vec![
+        (
+            "select_store_same",
+            quantify(
+                &[("a", array()), ("i", int()), ("v", int())],
+                Prop::Eq(select(store(a(), i(), v()), i()), v()),
+            ),
+            "Reading an array at the index it was last written at returns the written value. This is the defining law of the store.",
+        ),
+        (
+            "select_store_other",
+            quantify(
+                &[("a", array()), ("i", int()), ("j", int()), ("v", int())],
+                Prop::imp(
+                    Prop::imp(Prop::Eq(i(), j()), falsum()),
+                    Prop::Eq(select(store(a(), i(), v()), j()), select(a(), j())),
+                ),
+            ),
+            "Writing at one index does not change the element at a different index.",
+        ),
+        (
+            "select_const",
+            quantify(
+                &[("v", int()), ("i", int())],
+                Prop::Eq(select(Term::app("const_array", vec![v()]), i()), v()),
+            ),
+            "Every element of a constant array holds the constant.",
+        ),
+    ]
+}
+
+fn zero() -> Term {
+    Term::constant("0")
+}
+
+fn mul(a: Term, b: Term) -> Term {
+    Term::app("*", vec![a, b])
+}
+
+fn div(a: Term, b: Term) -> Term {
+    Term::app("div", vec![a, b])
+}
+
+fn modulo(a: Term, b: Term) -> Term {
+    Term::app("mod", vec![a, b])
+}
+
+/// Universally quantifies `body` over each binder, in order, with its sort.
+fn quantify(binders: &[(&str, Sort)], body: Prop) -> Prop {
+    binders.iter().rev().fold(body, |acc, (name, sort)| {
+        Prop::forall_sorted(name, sort.clone(), acc)
+    })
+}

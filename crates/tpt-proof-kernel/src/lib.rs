@@ -262,7 +262,7 @@ impl Kernel {
         kernel.sorts.insert(Sort::ind().0);
         kernel.sorts.insert(arith::INT.to_string());
         let int = || Sort::named(arith::INT);
-        for symbol in ["+", "-", "*"] {
+        for symbol in ["+", "-", "*", "div", "mod"] {
             let signature = Signature {
                 args: vec![int(), int()],
                 result: int(),

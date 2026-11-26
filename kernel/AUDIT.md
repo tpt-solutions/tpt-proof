@@ -30,6 +30,8 @@ The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel)
 | Tautology rule (`ProofTerm::Taut`, `taut.rs`): a formula true under every valuation of its letters, with ground arithmetic atoms evaluated; at most 16 letters | Implemented (primitive trusted rule; it makes the kernel classical) |
 | Built-in integers (`arith.rs`): sort `Int`, numerals, `+`, `-`, `*`, `neg`, `<=`, `<`, and ground evaluation in `i128` | Implemented (trusted meaning of numerals and operators) |
 | Integer axioms (`axioms::declare_standard`): eight laws over `Int` | Implemented (trusted axioms, listed below) |
+| Integer division and remainder (`div`, `mod`) with Euclidean axioms for a positive divisor | Implemented (trusted axioms, see the change log) |
+| Integer arrays (`select`, `store`, `const_array`) with the array laws | Implemented (trusted axioms, see the change log) |
 | Bounded (modular) arithmetic axioms | Not implemented. The VC language uses unbounded `Int`, so the standard axioms are over `Int` |
 | Rust-semantics axioms | Not implemented |
 
@@ -89,6 +91,10 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 - 2026: added two primitive rules for linear integer arithmetic, each checked in `linear.rs` and `farkas.rs`, and neither an axiom. `ProofTerm::Linear(a, b)` proves `a -> b` for two constraints `t <= s` whose differences have the same linear form, which makes them equivalent over the integers. `ProofTerm::Farkas(premises, coefficients)` proves `P_1 -> ... -> P_k -> false` when non-negative coefficients combine the premises (each `t <= s` or `t <= s -> false`) into a variable-free positive constant. Both use `i128` with overflow refused. Trust: the linear form of a term, the sign of each coefficient, and the constraint shapes. Tests: `tests/linear.rs` and `tests/farkas.rs`.
 
 - 2026: extended the linear equivalence rule to equations, which match with either sign, and added the linear identity rule (`ProofTerm::Identity(t, s)`, `linear.rs`). The identity rule proves `t = s` for two integer terms with the same linear form. It is a primitive, not an axiom, and its trust is the same linear-form computation as the other two rules. Tests: `tests/linear.rs`.
+
+- 2026: added the integer division and remainder operations `div` and `mod` (built-in, like `+`), with their Euclidean laws as trusted axioms `div_mod_euclid`, `mod_nonneg` and `mod_lt_divisor`. They hold for a positive divisor. Ground evaluation of `div` and `mod` for a positive divisor is in `arith.rs`. Declared by `axioms::declare_division`. Tests: `tests/division_arrays.rs`.
+- 2026: added integer arrays: the sort `IntArray`, the functions `select`, `store` and `const_array`, and the laws `select_store_same`, `select_store_other` and `select_const`. Declared by `axioms::declare_arrays`. These are the standard laws of the array theory. Tests: `tests/division_arrays.rs`.
+- 2026: the linear forms of `linear.rs` treat a non-linear term (a product of variables, `div`, `mod`, an array read) as an opaque integer. Identities and contradictions found this way hold for every integer value of those terms, so the rules are no less sound.
 
 ## Rules for changes
 
