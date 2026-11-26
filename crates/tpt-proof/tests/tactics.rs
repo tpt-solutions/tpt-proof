@@ -2,7 +2,7 @@
 //! assembled term checks, and an unsound step is caught at `qed`.
 
 use tpt_proof::prelude::*;
-use tpt_proof::tactics::{Proof, ProofError, Suggestion, TacticError};
+use tpt_proof::tactics::{Proof, ProofError, Rule, Suggestion, TacticError};
 use tpt_proof_kernel::{Sort, Term};
 
 fn atom(name: &str) -> Prop {
@@ -578,5 +578,85 @@ fn auto_closes_a_tautology_after_introduction() {
 fn auto_refuses_a_quantified_goal_with_the_tauto_error() {
     let kernel = Kernel::new();
     let mut proof = Proof::new(&kernel, Prop::forall("p", atom("p")));
-    assert!(matches!(proof.auto(), Err(TacticError::NotPropositional(_))));
+    assert!(matches!(
+        proof.auto(),
+        Err(TacticError::NotPropositional(_))
+    ));
+}
+
+#[test]
+fn simplify_rewrites_until_no_rule_applies() {
+    // Chain a = b and b = c, with the goal P(a) rewritten to P(c).
+    let mut kernel = rewrite_kernel();
+    kernel.declare_function("c", 0).expect("declare c");
+    kernel
+        .declare_axiom(
+            "bc",
+            Prop::Eq(Term::constant("b"), Term::constant("c")),
+            "test axiom",
+        )
+        .expect("declare bc");
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("a")));
+    let count = proof
+        .simplify(&[Rule::Axiom("ab".into()), Rule::Axiom("bc".into())])
+        .expect("simplify");
+    assert_eq!(count, 2);
+    assert_eq!(proof.goals()[0].target, p_of(Term::constant("c")));
+}
+
+#[test]
+fn simplify_uses_a_hypothesis_and_then_closes_the_goal() {
+    let kernel = rewrite_kernel();
+    let target = Prop::imp(
+        Prop::Eq(Term::constant("a"), Term::constant("b")),
+        p_of(Term::constant("a")),
+    );
+    let mut proof = Proof::new(&kernel, target.clone());
+    proof.intro("h").expect("intro");
+    assert_eq!(proof.simplify(&[Rule::Hyp("h".into())]), Ok(1));
+    proof
+        .exact(ProofTerm::Axiom("pb".to_string()))
+        .expect("exact");
+    let thm = proof.qed().expect("kernel accepts");
+    assert_eq!(thm.prop(), &target);
+}
+
+#[test]
+fn simplify_with_no_applicable_rule_reports_the_last_failure() {
+    let kernel = rewrite_kernel();
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("b")));
+    assert_eq!(
+        proof.simplify(&[Rule::Axiom("ab".into())]),
+        Err(TacticError::RewriteTargetNotFound(Term::constant("a")))
+    );
+    assert_eq!(proof.goals()[0].target, p_of(Term::constant("b")));
+}
+
+#[test]
+fn simplify_checks_every_name_before_rewriting() {
+    let kernel = rewrite_kernel();
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("a")));
+    assert_eq!(
+        proof.simplify(&[Rule::Axiom("ab".into()), Rule::Axiom("typo".into())]),
+        Err(TacticError::NoSuchAxiom("typo".into()))
+    );
+    assert_eq!(proof.goals()[0].target, p_of(Term::constant("a")));
+}
+
+#[test]
+fn simplify_stops_at_the_limit_on_a_looping_rule_set() {
+    let mut kernel = rewrite_kernel();
+    kernel
+        .declare_axiom(
+            "ba",
+            Prop::Eq(Term::constant("b"), Term::constant("a")),
+            "test axiom",
+        )
+        .expect("declare ba");
+    let mut proof = Proof::new(&kernel, p_of(Term::constant("a")));
+    let count = proof
+        .simplify(&[Rule::Axiom("ab".into()), Rule::Axiom("ba".into())])
+        .expect("simplify stops at the limit");
+    assert_eq!(count, tpt_proof::tactics::SIMPLIFY_LIMIT);
+    assert_eq!(proof.goals().len(), 1, "the goal is left open");
 }

@@ -206,6 +206,20 @@ enum Tree {
     },
 }
 
+/// The most rewrites that [`Proof::simplify`] makes before it stops.
+pub const SIMPLIFY_LIMIT: usize = 64;
+
+/// An equation that [`Proof::simplify`] rewrites with, named by where it lives.
+#[derive(Debug, Clone, PartialEq, Eq)]
+pub enum Rule {
+    /// A hypothesis `l = r` in the focused goal.
+    Hyp(String),
+    /// A declared axiom `l = r`.
+    Axiom(String),
+    /// A checked theorem `l = r`.
+    Theorem(String),
+}
+
 /// An interactive proof of `target` against a kernel.
 pub struct Proof<'k> {
     kernel: &'k Kernel,
@@ -374,6 +388,70 @@ impl<'k> Proof<'k> {
             .prop()
             .clone();
         self.apply(|goal| rewrite(goal, &prop, ProofTerm::Const(name.to_string())))
+    }
+
+    /// `simplify rules`: rewrites the focused goal with the given equations until
+    /// none of them applies, or until [`SIMPLIFY_LIMIT`] rewrites have been made.
+    /// Each rule is tried in order and the first that applies is used, so the
+    /// rules are a strategy, not a set to be closed under.
+    ///
+    /// Every name is checked before anything is rewritten, so a misspelled rule is
+    /// an error and not a silent no-op. The result is the number of rewrites made.
+    /// The goal that remains is open: close it with `assumption`, `exact` or
+    /// `tauto`. A rewrite that loops (`A = B` and `B = A`) stops at the limit.
+    pub fn simplify(&mut self, rules: &[Rule]) -> Result<usize, TacticError> {
+        for rule in rules {
+            self.check_rule(rule)?;
+        }
+        let mut applied = 0;
+        let mut last_error = None;
+        'rounds: while applied < SIMPLIFY_LIMIT {
+            for rule in rules {
+                match self.rewrite_with(rule) {
+                    Ok(()) => {
+                        applied += 1;
+                        continue 'rounds;
+                    }
+                    Err(error) => last_error = Some(error),
+                }
+            }
+            break;
+        }
+        match (applied, last_error) {
+            (0, Some(error)) => Err(error),
+            _ => Ok(applied),
+        }
+    }
+
+    fn check_rule(&self, rule: &Rule) -> Result<(), TacticError> {
+        match rule {
+            Rule::Hyp(name) => {
+                let goal = self.focus()?;
+                if goal.hyps.iter().any(|(n, _)| n == name) {
+                    Ok(())
+                } else {
+                    Err(TacticError::NoSuchHypothesis(name.clone()))
+                }
+            }
+            Rule::Axiom(name) => self
+                .kernel
+                .axiom(name)
+                .map(|_| ())
+                .ok_or_else(|| TacticError::NoSuchAxiom(name.clone())),
+            Rule::Theorem(name) => self
+                .kernel
+                .theorem(name)
+                .map(|_| ())
+                .ok_or_else(|| TacticError::NoSuchTheorem(name.clone())),
+        }
+    }
+
+    fn rewrite_with(&mut self, rule: &Rule) -> Result<(), TacticError> {
+        match rule {
+            Rule::Hyp(name) => self.rewrite_hyp(name),
+            Rule::Axiom(name) => self.rewrite_axiom(name),
+            Rule::Theorem(name) => self.rewrite_theorem(name),
+        }
     }
 
     /// Finishes the proof. It fails if goals remain open or the kernel rejects

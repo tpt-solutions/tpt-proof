@@ -101,7 +101,7 @@ Legend: `[ ]` todo · `[x]` done. Milestones are in **bold**. Source of truth fo
 ## Phase 4: Layer 3, interactive proofs
 
 - [ ] DSL macros: `#[theorem]`, `#[lemma]`, `arbitrary()`, `assume()`, `show()`, `by {}` (not started: needs the proc-macro crate; tactics are the Rust API for now)
-- [ ] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact, case_split, and rewrite (`rewrite_hyp`, `rewrite_axiom`, `rewrite_theorem`: directed rewriting by an equation, built on Leibniz substitution) done. `induct`, with `intro_individual` to open the case binders, done, on the kernel rule `ProofTerm::Induct` (see docs/design-induct.md). `simplify` is read as a strategy that applies a rule set of rewrites, and is not built)
+- [x] Tactic framework (untrusted): `case_split`, `apply`, `induct`, `simplify`, ... (intro, intro_forall, apply_*, assumption, exact, case_split, and rewrite (`rewrite_hyp`, `rewrite_axiom`, `rewrite_theorem`: directed rewriting by an equation, built on Leibniz substitution) done. `induct`, with `intro_individual` to open the case binders, done, on the kernel rule `ProofTerm::Induct` (see docs/design-induct.md). `simplify` is built as a strategy over rewrite rules (see the Usability section))
 - [x] Each tactic step emits a proof term that the kernel checks
 - [x] Interactive mode: goal display and suggested next steps (`Proof::suggestions` lists the tactics that apply to the focused goal: intro, intro_forall, assumption, apply_hyp/axiom/theorem; advice only)
 - [x] Dependency/axiom reports (`tpt_proof::report::dependency_report`: each theorem, its axioms, and their justifications)
@@ -176,7 +176,7 @@ Ordered by priority. Do the soundness items before anything else.
 - [x] Shared tool-detection helper: Z3 and Lean tests skip with a message instead of `#[ignore]` or hard-failing. The helper is `tests-support/tools.rs`, included by each test crate with `#[path]` because the kernel cannot take a dev-dependency.
 - [ ] CI: jobs with Z3 and the pinned nightly that build and test `tpt-proof-mir` and `examples/filesystem` and run the `--ignored` tests; MSRV job pending. Windows test job and docs build (`mdbook build docs`) added to `.github/workflows/ci.yml`, not yet run on GitHub
 - [x] `Prop` parser or `prop!` macro: `tpt_proof::prop::parse` and `prop!("...")` read the propositional fragment (atoms, `->`, `forall p.`, `false`). Equalities and predicates still need the kernel API; the parser does not reuse `spec.rs`, because its expressions are not kernel propositions
-- [x] `auto` tactic: `Proof::auto` tries `assumption`, then `tauto`. The `simplify` tactic is open.
+- [x] `auto` tactic: `Proof::auto` tries `assumption`, then `tauto`. `simplify` (`Proof::simplify(&[Rule])`) rewrites with a rule list in order until none applies, capped at `SIMPLIFY_LIMIT` (64); names are checked first. It does not close the goal, and it is not a full simp set.
 - [x] Re-export tactics, `library` and `invariant` from the facade prelude
 - [ ] Packaging: CHANGELOG (started, `CHANGELOG.md`), Cargo metadata (`repository`, `readme`, `keywords`, `categories`), decide on `publish = false`, reserve crates.io names, prebuilt driver binaries
 

@@ -22,6 +22,9 @@ and nothing is published yet.
 ### Added
 
 - The `auto` tactic: closes a goal by `assumption`, or else by `tauto`.
+- The `simplify` tactic: rewrites the goal with a list of equations (`Rule::Hyp`,
+  `Rule::Axiom`, `Rule::Theorem`) until none applies, at most 64 times. Names are
+  checked before any rewriting.
 - `tpt_proof::prop::parse` and the `prop!("...")` macro, which read propositions
   from text: atoms, `->`, `forall p.` and `false`. Parsing is untrusted; the kernel
   checks the proofs of whatever proposition is read.
