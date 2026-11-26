@@ -67,3 +67,22 @@ fn a_non_linear_side_is_refused() {
 fn a_side_that_is_not_a_comparison_is_refused() {
     assert!(prove(Prop::atom("false"), Prop::atom("false")).is_err());
 }
+
+#[test]
+fn an_equation_matches_with_either_sign() {
+    // x = 1 + y has difference x - 1 - y; 1 + y = x has the negation.
+    let a = Prop::Eq(c("x"), Term::app("+", vec![c("1"), c("y")]));
+    let b = Prop::Eq(Term::app("+", vec![c("1"), c("y")]), c("x"));
+    prove(a.clone(), b.clone()).expect("the same equation, reversed");
+    prove(b, a).expect("and back");
+}
+
+#[test]
+fn an_equation_and_an_inequality_are_not_interchanged() {
+    assert!(prove(Prop::Eq(c("x"), c("y")), le(c("x"), c("y"))).is_err());
+}
+
+#[test]
+fn equations_with_different_forms_are_refused() {
+    assert!(prove(Prop::Eq(c("x"), c("y")), Prop::Eq(c("x"), c("x"))).is_err());
+}

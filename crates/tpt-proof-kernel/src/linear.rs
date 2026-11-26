@@ -113,20 +113,31 @@ pub(crate) fn check_implication(kernel: &crate::Kernel, a: &Prop, b: &Prop) -> c
     let reject = |reason: &str| crate::KernelError::LinearRejected(reason.to_string());
     kernel.check_prop(a, &[])?;
     kernel.check_prop(b, &[])?;
-    let (Prop::Pred(left, left_args), Prop::Pred(right, right_args)) = (a, b) else {
-        return Err(reject("both sides must be `t <= s` constraints"));
-    };
-    if left != "<=" || right != "<=" {
-        return Err(reject("both sides must be `t <= s` constraints"));
-    }
-    let difference = |args: &[Term]| match args {
-        [t, s] => linear(t)?.add(&linear(s)?, -1),
+    // The difference `t - s` of each side, with the relation it must satisfy.
+    let difference = |prop: &Prop| match prop {
+        Prop::Pred(symbol, args) if symbol == "<=" => match args.as_slice() {
+            [t, s] => linear(t)?.add(&linear(s)?, -1).map(|form| (form, false)),
+            _ => None,
+        },
+        Prop::Eq(t, s) => linear(t)?.add(&linear(s)?, -1).map(|form| (form, true)),
         _ => None,
     };
-    let (Some(f), Some(g)) = (difference(left_args), difference(right_args)) else {
-        return Err(reject("a side is not a linear integer constraint"));
+    let (Some((f, f_is_eq)), Some((g, g_is_eq))) = (difference(a), difference(b)) else {
+        return Err(reject(
+            "both sides must be `t <= s` constraints or equations over linear integer terms",
+        ));
     };
-    if f != g {
+    if f_is_eq != g_is_eq {
+        return Err(reject("an inequality cannot stand for an equation"));
+    }
+    // `f <= 0` depends only on `f`. `f = 0` is the same as `-f = 0`, so an
+    // equation may match with either sign.
+    let same = if f_is_eq {
+        f == g || g.scale(-1).is_some_and(|negated| f == negated)
+    } else {
+        f == g
+    };
+    if !same {
         return Err(reject("the two sides have different linear forms"));
     }
     Ok(Prop::imp(a.clone(), b.clone()))
