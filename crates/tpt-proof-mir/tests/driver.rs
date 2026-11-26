@@ -430,3 +430,18 @@ fn a_loop_bound_assertion_is_kernel_checked_in_proof_mode() {
     assert!(report.contains("assertion at bb2: proved (kernel-checked)"), "{report}");
     assert!(report.contains("assertion at bb3: proved (kernel-checked)"), "{report}");
 }
+
+#[test]
+fn a_local_hypothesis_in_a_case_split_is_kernel_checked() {
+    // Z3 discharges a case split with `hypothesis` and `lemma` steps. The
+    // reflection binds the hypothesis where the lemma discharges it, so the
+    // midpoint assertion of the search is kernel-checked in proof mode.
+    let manifest = env!("CARGO_MANIFEST_DIR");
+    let output = Command::new(env!("CARGO_BIN_EXE_tpt-proof-mir"))
+        .arg(format!("{manifest}/tests/fixtures/binary_search.rs"))
+        .env("TPT_PROOF_VERIFY", "1")
+        .output()
+        .expect("run the driver");
+    let report = String::from_utf8_lossy(&output.stdout);
+    assert!(report.contains("assertion at bb5: proved (kernel-checked)"), "{report}");
+}

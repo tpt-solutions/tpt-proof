@@ -240,3 +240,11 @@ The kernel now has the integer axiom `le_antisymm` (`x <= y -> y <= x -> x = y`)
 The second form of `triangle-eq` has a disequality, `not (a = b)`, with `0 <= a + (-1)*b`. Under `a = b` the second literal follows: `0 <= b + (-1)*b` is a linear fact, refuted by the Farkas rule, and the equation moves it to `a` by the Leibniz rule. No further axiom.
 
 Across the 35 fixtures, 46 of 53 solver proofs are kernel-checked, and 7 are not. The remaining 7 are 3 `hypothesis` steps (Z3 introduces an assumption inside a sub-proof, which the reflection does not yet discharge), 2 `ite` terms from signed division, 1 equation rewritten to a conjunction, and 1 indexed rule with a short head.
+
+### Twelfth slice: local hypotheses, rational coefficients, and remainder facts in the search
+
+Z3 discharges some case splits with `(hypothesis F)` and `(lemma P c)` steps. A hypothesis is a free proof variable. The reflection now treats the `let` names whose proofs depend on a hypothesis as inlined at their uses, so the enclosing `lemma` binds the hypothesis by a lambda and applies double negation to get `c`. This is the only change of kind in this slice; it adds no axiom.
+
+Two smaller changes: Z3 may print rational Farkas coefficients (`1/2`), which are then searched rather than read; and the certificate search includes the division facts about the remainders the premises mention, so a bound such as `m <= 1` can be refuted by `m < 2`. The search covers coefficients 0 to 2 for at most four premises, and 0 or 1 beyond that.
+
+Across the 35 fixtures, 47 of 53 solver proofs are kernel-checked, and 6 are not. The remaining 6 are 2 theory lemmas whose refutation needs more than the 0/1 search covers (in the binary search, the nine-premise lemmas involve the Euclidean identity and a remainder bound together), 2 `ite` terms, one equation rewritten to a conjunction, and one indexed rule with a short head.

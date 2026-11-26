@@ -105,6 +105,8 @@ pub fn reconstruct(vc: &Vc, proof: &str) -> Result<Theorem, ReflectError> {
         hypotheses: &hypotheses,
         env: BTreeMap::new(),
         terms: BTreeMap::new(),
+        local: Vec::new(),
+        inline: BTreeMap::new(),
     };
     let (body_proof, body_formula) = translator.step(body)?;
     if body_formula != Formula::Const(false) {
@@ -253,6 +255,11 @@ struct Translator<'a> {
     env: BTreeMap<String, Formula>,
     /// The term each `let`-bound term name (`?x`) stands for.
     terms: BTreeMap<String, Sexp>,
+    /// The formulas of the local hypotheses (`(hypothesis F)`), by index.
+    local: Vec<Formula>,
+    /// Proofs of `let` names that use a local hypothesis. They are inlined where
+    /// they are referenced, so that the enclosing `lemma` binds the hypothesis.
+    inline: BTreeMap<String, ProofTerm>,
 }
 
 impl Translator<'_> {
@@ -276,6 +283,9 @@ impl Translator<'_> {
                     self.env.get(name).cloned().ok_or_else(|| {
                         ReflectError::Malformed(format!("unbound proof `{name}`"))
                     })?;
+                if let Some(proof) = self.inline.get(name) {
+                    return Ok((proof.clone(), formula));
+                }
                 Ok((ProofTerm::Var(name.clone()), formula))
             }
             Sexp::List(items) => match items.split_first() {
@@ -373,24 +383,20 @@ impl Translator<'_> {
                 "a Farkas step with premise proofs must conclude false".to_string(),
             ));
         }
-        let coefficients = head[4..]
+        // Z3 may print rational coefficients (`1/2`). The certificate is only
+        // scaled then, so when they are not integers the coefficients are searched.
+        let given_coefficients: Option<Vec<i128>> = head[4..]
             .iter()
-            .map(|sexp| {
-                atom(sexp)
-                    .and_then(|text| text.parse::<i128>().ok())
-                    .ok_or_else(|| {
-                        ReflectError::Malformed(
-                            "a Farkas coefficient is not an integer".to_string(),
-                        )
-                    })
-            })
-            .collect::<Result<Vec<_>, _>>()?;
-        if coefficients.len() != premises.len() {
-            return Err(ReflectError::Malformed(format!(
-                "a Farkas step has {} premise(s) and {} coefficient(s)",
-                premises.len(),
-                coefficients.len()
-            )));
+            .map(|sexp| atom(sexp).and_then(|text| text.parse::<i128>().ok()))
+            .collect();
+        if let Some(coefficients) = &given_coefficients {
+            if coefficients.len() != premises.len() {
+                return Err(ReflectError::Malformed(format!(
+                    "a Farkas step has {} premise(s) and {} coefficient(s)",
+                    premises.len(),
+                    coefficients.len()
+                )));
+            }
         }
         let mut steps = Vec::new();
         for premise in premises {
@@ -405,15 +411,16 @@ impl Translator<'_> {
             });
         // Z3's coefficients are used when the kernel accepts them. Otherwise the
         // coefficients are searched, as for the other lemma kinds.
-        let given = ProofTerm::Farkas(props.clone(), coefficients);
-        let certificate = if self
-            .kernel
-            .check_proof(&given, &refutation.encode())
-            .is_ok()
-        {
-            given
-        } else {
-            self.searched_certificate(props, &refutation)?
+        let given =
+            given_coefficients.map(|coefficients| ProofTerm::Farkas(props.clone(), coefficients));
+        let accepted = given.filter(|certificate| {
+            self.kernel
+                .check_proof(certificate, &refutation.encode())
+                .is_ok()
+        });
+        let certificate = match accepted {
+            Some(certificate) => certificate,
+            None => self.searched_certificate(props, &refutation)?,
         };
         let proof = steps.into_iter().fold(certificate, |acc, (premise, _)| {
             ProofTerm::App(Box::new(acc), Box::new(premise))
@@ -431,6 +438,15 @@ impl Translator<'_> {
             return Err(unsupported());
         };
         let negate_one = || Term::app("neg", vec![Term::constant("1")]);
+        // The comparison `x <= 0` or `0 <= x`, in the orientation the clause uses.
+        let comparison = |x: Term, zero_first: bool| {
+            let zero = Term::constant("0");
+            if zero_first {
+                Prop::Pred("<=".to_string(), vec![zero, x])
+            } else {
+                Prop::Pred("<=".to_string(), vec![x, zero])
+            }
+        };
         for literal in literals {
             let Formula::Not(inner) = literal else {
                 continue;
@@ -438,81 +454,69 @@ impl Translator<'_> {
             let Formula::Atom(Prop::Eq(a, b)) = &**inner else {
                 continue;
             };
-            let relaxed = Prop::Pred(
-                "<=".to_string(),
+            let difference = Term::app(
+                "+",
+                vec![a.clone(), Term::app("*", vec![negate_one(), b.clone()])],
+            );
+            let moved = Term::app(
+                "+",
                 vec![
-                    Term::constant("0"),
-                    Term::app(
-                        "+",
-                        vec![a.clone(), Term::app("*", vec![negate_one(), b.clone()])],
-                    ),
+                    Term::var(MOTIVE),
+                    Term::app("*", vec![negate_one(), b.clone()]),
                 ],
             );
-            let listed = literals
-                .iter()
-                .any(|other| matches!(other, Formula::Atom(p) if *p == relaxed));
-            if !listed {
-                continue;
+            let closed_difference = Term::app(
+                "+",
+                vec![b.clone(), Term::app("*", vec![negate_one(), b.clone()])],
+            );
+            for zero_first in [true, false] {
+                let relaxed = comparison(difference.clone(), zero_first);
+                let listed = literals
+                    .iter()
+                    .any(|other| matches!(other, Formula::Atom(p) if *p == relaxed));
+                if !listed {
+                    continue;
+                }
+                let motive = comparison(moved.clone(), zero_first);
+                // The comparison at `b`, which is linear and holds: its negation is
+                // refuted by the Farkas rule alone.
+                let closed = comparison(closed_difference.clone(), zero_first);
+                let negated = Formula::Not(Box::new(Formula::Atom(closed.clone())));
+                let refutation = ProofTerm::Farkas(vec![negated.encode()], vec![1]);
+                let closed_proof = ProofTerm::App(
+                    Box::new(ProofTerm::Taut(Formula::Imp(
+                        Box::new(Formula::Not(Box::new(negated.clone()))),
+                        Box::new(Formula::Atom(closed.clone())),
+                    ))),
+                    Box::new(refutation),
+                );
+                self.kernel
+                    .check_proof(&closed_proof, &closed)
+                    .map_err(|_| unsupported())?;
+                let relax = ProofTerm::Lam(
+                    HYPOTHESIS.to_string(),
+                    Formula::Atom(Prop::Eq(a.clone(), b.clone())).encode(),
+                    Box::new(ProofTerm::Leibniz(
+                        MOTIVE.to_string(),
+                        motive,
+                        Box::new(ProofTerm::Sym(Box::new(ProofTerm::Var(
+                            HYPOTHESIS.to_string(),
+                        )))),
+                        Box::new(closed_proof),
+                    )),
+                );
+                let lemma = Formula::Imp(
+                    Box::new(Formula::Imp(
+                        Box::new(Formula::Atom(Prop::Eq(a.clone(), b.clone()))),
+                        Box::new(Formula::Atom(relaxed)),
+                    )),
+                    Box::new(conclusion.clone()),
+                );
+                return Ok((
+                    ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(relax)),
+                    conclusion.clone(),
+                ));
             }
-            let motive = Prop::Pred(
-                "<=".to_string(),
-                vec![
-                    Term::constant("0"),
-                    Term::app(
-                        "+",
-                        vec![
-                            Term::var(MOTIVE),
-                            Term::app("*", vec![negate_one(), b.clone()]),
-                        ],
-                    ),
-                ],
-            );
-            // `0 <= b + (-1)*b`, proved by refuting its negation with the Farkas rule.
-            let closed = Prop::Pred(
-                "<=".to_string(),
-                vec![
-                    Term::constant("0"),
-                    Term::app(
-                        "+",
-                        vec![b.clone(), Term::app("*", vec![negate_one(), b.clone()])],
-                    ),
-                ],
-            );
-            let negated = Formula::Not(Box::new(Formula::Atom(closed.clone())));
-            let refutation = ProofTerm::Farkas(vec![negated.encode()], vec![1]);
-            let closed_proof = ProofTerm::App(
-                Box::new(ProofTerm::Taut(Formula::Imp(
-                    Box::new(Formula::Not(Box::new(negated.clone()))),
-                    Box::new(Formula::Atom(closed.clone())),
-                ))),
-                Box::new(refutation),
-            );
-            self.kernel
-                .check_proof(&closed_proof, &closed)
-                .map_err(|_| unsupported())?;
-            let relax = ProofTerm::Lam(
-                HYPOTHESIS.to_string(),
-                Formula::Atom(Prop::Eq(a.clone(), b.clone())).encode(),
-                Box::new(ProofTerm::Leibniz(
-                    MOTIVE.to_string(),
-                    motive,
-                    Box::new(ProofTerm::Sym(Box::new(ProofTerm::Var(
-                        HYPOTHESIS.to_string(),
-                    )))),
-                    Box::new(closed_proof),
-                )),
-            );
-            let lemma = Formula::Imp(
-                Box::new(Formula::Imp(
-                    Box::new(Formula::Atom(Prop::Eq(a.clone(), b.clone()))),
-                    Box::new(Formula::Atom(relaxed)),
-                )),
-                Box::new(conclusion.clone()),
-            );
-            return Ok((
-                ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(relax)),
-                conclusion.clone(),
-            ));
         }
         Err(unsupported())
     }
@@ -615,16 +619,25 @@ impl Translator<'_> {
             Formula::Or(items) => items.clone(),
             other => vec![other.clone()],
         };
-        // A literal that the division laws state outright: a remainder is not
-        // negative, or it is below its divisor. The fact is the literal itself.
+        // A literal that the division laws state, or that a fact about a remainder
+        // implies by linear arithmetic (`m < 2` gives `m <= 1`). The proof of the
+        // literal is the fact's proof, carried along the implication.
         for literal in &literals {
             let Formula::Atom(prop) = literal else {
                 continue;
             };
-            let Some((_, proof)) = division_facts(prop)
-                .into_iter()
-                .find(|(fact, _)| fact == prop)
-            else {
+            let facts = division_facts(prop);
+            let proof = facts.into_iter().find_map(|(fact, fact_proof)| {
+                if &fact == prop {
+                    return Some(fact_proof);
+                }
+                let implication = self.comparison_implication(
+                    &Formula::Atom(fact.clone()),
+                    &Formula::Atom(prop.clone()),
+                )?;
+                Some(ProofTerm::App(Box::new(implication), Box::new(fact_proof)))
+            });
+            let Some(proof) = proof else {
                 continue;
             };
             let lemma = Formula::Imp(
@@ -742,7 +755,12 @@ impl Translator<'_> {
         premises: Vec<Prop>,
         refutation: &Formula,
     ) -> Result<ProofTerm, ReflectError> {
-        let count = premises.len();
+        // The division laws add facts about the remainders the premises mention, so
+        // a remainder bound such as `m <= 1` can be refuted by `m < 2`.
+        let facts: Vec<(Prop, ProofTerm)> = premises.iter().flat_map(division_facts).collect();
+        let mut extended: Vec<Prop> = facts.iter().map(|(fact, _)| fact.clone()).collect();
+        extended.extend(premises);
+        let count = extended.len();
         let claim = refutation.encode();
         // Coefficients 0, 1 and 2 for at most four premises, else 0 and 1.
         let top: u64 = if count <= 4 { 2 } else { 1 };
@@ -755,13 +773,16 @@ impl Translator<'_> {
                     digit as i128
                 })
                 .collect();
-            let certificate = ProofTerm::Farkas(premises.clone(), coefficients);
+            let certificate = facts.iter().fold(
+                ProofTerm::Farkas(extended.clone(), coefficients),
+                |acc, (_, fact)| ProofTerm::App(Box::new(acc), Box::new(fact.clone())),
+            );
             if self.kernel.check_proof(&certificate, &claim).is_ok() {
                 return Ok(certificate);
             }
         }
         Err(ReflectError::Unsupported(
-            "a theory lemma that linear arithmetic does not refute with 0/1 coefficients"
+            "a theory lemma that linear arithmetic does not refute with 0/1/2 coefficients"
                 .to_string(),
         ))
     }
@@ -808,14 +829,80 @@ impl Translator<'_> {
         if !name.starts_with('@') {
             return Err(ReflectError::Unsupported(format!("`let` name `{name}`")));
         }
+        let uses_local = self.uses_local(value);
         let (proof, formula) = self.step(value)?;
         self.env.insert(name.clone(), formula.clone());
+        if uses_local {
+            // A proof that depends on a local hypothesis is inlined at its uses, so
+            // the `lemma` that discharges the hypothesis encloses it.
+            self.inline.insert(name.clone(), proof);
+            return self.bindings(rest, body);
+        }
         let (inner, inner_formula) = self.bindings(rest, body)?;
         let bound = ProofTerm::Lam(name.clone(), formula.encode(), Box::new(inner));
         Ok((
             ProofTerm::App(Box::new(bound), Box::new(proof)),
             inner_formula,
         ))
+    }
+
+    /// The name of local hypothesis `index`, and the index of formula `formula`
+    /// among the local hypotheses, added if it is new.
+    fn local_index(&mut self, formula: &Formula) -> usize {
+        match self.local.iter().position(|known| known == formula) {
+            Some(index) => index,
+            None => {
+                self.local.push(formula.clone());
+                self.local.len() - 1
+            }
+        }
+    }
+
+    /// `(hypothesis F)`: a proof of `F` under a local assumption. The assumption
+    /// is a free variable, which the enclosing `lemma` binds.
+    fn local_hypothesis(&mut self, formula: Formula) -> Step {
+        let index = self.local_index(&formula);
+        (ProofTerm::Var(local_name(index)), formula)
+    }
+
+    /// `(lemma P c)`: `P` proves `false` under the assumption `not c`, so `c`
+    /// holds. The assumption is bound by a lambda, and double negation gives `c`.
+    fn lemma(&mut self, premises: &[Sexp], conclusion: Formula) -> Result<Step, ReflectError> {
+        let [premise] = premises else {
+            return Err(ReflectError::Malformed(
+                "a `lemma` has one premise".to_string(),
+            ));
+        };
+        let (proof, formula) = self.step(premise)?;
+        if formula != Formula::Const(false) {
+            return Err(ReflectError::Malformed(
+                "a `lemma` premise does not conclude false".to_string(),
+            ));
+        }
+        let assumption = Formula::Not(Box::new(conclusion.clone()));
+        let index = self.local_index(&assumption);
+        let discharged = ProofTerm::Lam(local_name(index), assumption.encode(), Box::new(proof));
+        let double_negation = Formula::Not(Box::new(assumption));
+        let dne = ProofTerm::Taut(Formula::Imp(
+            Box::new(double_negation),
+            Box::new(conclusion.clone()),
+        ));
+        Ok((
+            ProofTerm::App(Box::new(dne), Box::new(discharged)),
+            conclusion,
+        ))
+    }
+
+    /// Whether a solver term uses a local hypothesis: directly, or through a `let`
+    /// name whose proof is inlined because it does.
+    fn uses_local(&self, sexp: &Sexp) -> bool {
+        match sexp {
+            Sexp::Atom(name) => self.inline.contains_key(name),
+            Sexp::List(items) => {
+                matches!(items.first(), Some(Sexp::Atom(head)) if head == "hypothesis")
+                    || items.iter().any(|item| self.uses_local(item))
+            }
+        }
     }
 
     /// Reads a formula of the solver's text, with its `let` names resolved.
@@ -937,6 +1024,8 @@ impl Translator<'_> {
         let conclusion = self.formula(conclusion)?;
         match rule {
             "asserted" => self.asserted(conclusion),
+            "hypothesis" => Ok(self.local_hypothesis(conclusion)),
+            "lemma" => self.lemma(premises, conclusion),
             "true-axiom" if conclusion == Formula::Const(true) => {
                 Ok((ProofTerm::Taut(conclusion.clone()), conclusion))
             }
@@ -1742,6 +1831,11 @@ fn euclid_parts(term: &Term) -> Option<(Term, Term, Term)> {
         return None;
     }
     Some((k.clone(), quotient.clone(), remainder.clone()))
+}
+
+/// The name of local hypothesis `index`, as a proof variable.
+fn local_name(index: usize) -> String {
+    format!("#k{index}")
 }
 
 #[cfg(test)]

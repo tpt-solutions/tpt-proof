@@ -21,6 +21,7 @@ and nothing is published yet.
 
 ### Added
 
+- Reflection: local hypotheses in case splits (`hypothesis` and `lemma` steps), rational Farkas coefficients, and remainder facts in the certificate search. 47 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Kernel: the integer axiom `le_antisymm` (approved for a dedicated review, recorded in `kernel/AUDIT.md`). Reflection reconstructs both forms of the `triangle-eq` lemma. 46 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Reflection: Farkas steps whose premises are proofs are reconstructed, with the premise proofs applied to the certificate. 44 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Reflection: an equivalence between comparisons that differ in scale, such as `2 * x <= 255` and `x <= 127`, is proved in each direction by a Farkas certificate with coefficients 0 to 2. No new axiom. 42 of 53 solver proofs are now kernel-checked.
