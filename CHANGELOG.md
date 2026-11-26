@@ -21,6 +21,13 @@ and nothing is published yet.
 
 ### Added
 
+- The `auto` tactic: closes a goal by `assumption`, or else by `tauto`.
+- `tpt_proof::prop::parse` and the `prop!("...")` macro, which read propositions
+  from text: atoms, `->`, `forall p.` and `false`. Parsing is untrusted; the kernel
+  checks the proofs of whatever proposition is read.
+- The mdBook gained a tutorial, a cookbook and a "what is trusted" page. The
+  cookbook recipes are tests, so the documented code is compiled and run.
+- CI: a Windows build-and-test job and a book build job. Neither has run on GitHub yet.
 - `tpt-proof verify` options: `--timeout`, `--z3-path`, `--json`, `--help`.
   The driver reads `TPT_PROOF_TIMEOUT_MS`, `TPT_PROOF_Z3` and `TPT_PROOF_FORMAT=json`.
 - `tpt-proof report <library>`, `tpt-proof export <library> [--out <file>]` and

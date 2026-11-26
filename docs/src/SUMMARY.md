@@ -2,5 +2,8 @@
 
 [Introduction](README.md)
 
+- [Tutorial](tutorial.md)
+- [Cookbook](cookbook.md)
+- [What is trusted](trusted.md)
 - [Kernel logic](../../docs/kernel-logic.md)
 - [Kernel audit](../../kernel/AUDIT.md)

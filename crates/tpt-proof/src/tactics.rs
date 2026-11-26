@@ -259,6 +259,18 @@ impl<'k> Proof<'k> {
         self.apply(tauto)
     }
 
+    /// `auto`: closes the goal with `assumption` if a hypothesis matches the
+    /// target, and otherwise with `tauto`. It does not introduce binders, so
+    /// implications and quantifiers must be introduced first. As with `tauto`, an
+    /// unprovable goal is only rejected at [`Proof::qed`]. On failure the error is
+    /// the one from `tauto`, which says why the goal is out of reach.
+    pub fn auto(&mut self) -> Result<(), TacticError> {
+        if self.assumption().is_ok() {
+            return Ok(());
+        }
+        self.tauto()
+    }
+
     /// Closes the goal with a hypothesis of the same proposition.
     pub fn assumption(&mut self) -> Result<(), TacticError> {
         self.apply(assumption)

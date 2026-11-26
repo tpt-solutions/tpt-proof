@@ -536,3 +536,47 @@ fn tauto_on_a_non_tautology_is_rejected_at_qed() {
     proof.tauto().expect("the tactic itself applies");
     assert!(proof.qed().is_err());
 }
+
+#[test]
+fn auto_closes_a_goal_that_is_a_hypothesis() {
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::imp(atom("A"), atom("A")));
+    proof.intro("a").expect("intro");
+    proof.auto().expect("auto finds the hypothesis");
+    assert!(proof.qed().is_ok());
+}
+
+#[test]
+fn auto_falls_back_to_tauto_for_a_propositional_goal() {
+    // Neither hypothesis is the target, so `auto` must reach for the tautology rule.
+    let kernel = Kernel::new();
+    let target = Prop::imp(
+        Prop::imp(atom("A"), atom("B")),
+        Prop::imp(atom("A"), Prop::imp(atom("B"), atom("C"))),
+    );
+    let mut proof = Proof::new(&kernel, target);
+    proof.intro("f").expect("intro f");
+    proof.intro("a").expect("intro a");
+    proof.intro("b").expect("intro b");
+    // `tauto` applies the tautology rule without deciding it, as the existing
+    // test `tauto_on_a_non_tautology_is_rejected_at_qed` shows, so the kernel
+    // is what rejects the unprovable goal.
+    proof.auto().expect("auto applies the tautology rule");
+    assert!(proof.qed().is_err(), "the kernel refuses the non-theorem");
+}
+
+#[test]
+fn auto_closes_a_tautology_after_introduction() {
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::imp(atom("A"), atom("A")));
+    proof.intro("a").expect("intro");
+    proof.auto().expect("auto");
+    assert!(proof.qed().is_ok());
+}
+
+#[test]
+fn auto_refuses_a_quantified_goal_with_the_tauto_error() {
+    let kernel = Kernel::new();
+    let mut proof = Proof::new(&kernel, Prop::forall("p", atom("p")));
+    assert!(matches!(proof.auto(), Err(TacticError::NotPropositional(_))));
+}

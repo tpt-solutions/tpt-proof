@@ -34,6 +34,7 @@
 #![allow(clippy::result_large_err)]
 
 pub mod library;
+pub mod prop;
 pub mod report;
 pub mod tactics;
 

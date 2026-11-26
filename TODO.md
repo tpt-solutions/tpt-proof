@@ -174,9 +174,9 @@ Ordered by priority. Do the soundness items before anything else.
 - [ ] MIR driver diagnostics with source spans (today: function names only)
 - [ ] `cargo tpt-proof` subcommand and package-level verification (today: single files)
 - [x] Shared tool-detection helper: Z3 and Lean tests skip with a message instead of `#[ignore]` or hard-failing. The helper is `tests-support/tools.rs`, included by each test crate with `#[path]` because the kernel cannot take a dev-dependency.
-- [ ] CI: jobs with Z3 and the pinned nightly that build and test `tpt-proof-mir` and `examples/filesystem` and run the `--ignored` tests; add Windows, docs build and MSRV jobs
-- [ ] `Prop` parser or `prop!` macro (reuse `tpt-proof-contract` `spec.rs`)
-- [ ] `auto`/`tauto` tactic wrapping the `Taut` rule; the `simplify` tactic. `tauto` is done (`Proof::tauto`, for goals and hypotheses built from implications, `false` and atoms). `auto` and `simplify` are open.
+- [ ] CI: jobs with Z3 and the pinned nightly that build and test `tpt-proof-mir` and `examples/filesystem` and run the `--ignored` tests; MSRV job pending. Windows test job and docs build (`mdbook build docs`) added to `.github/workflows/ci.yml`, not yet run on GitHub
+- [x] `Prop` parser or `prop!` macro: `tpt_proof::prop::parse` and `prop!("...")` read the propositional fragment (atoms, `->`, `forall p.`, `false`). Equalities and predicates still need the kernel API; the parser does not reuse `spec.rs`, because its expressions are not kernel propositions
+- [x] `auto` tactic: `Proof::auto` tries `assumption`, then `tauto`. The `simplify` tactic is open.
 - [x] Re-export tactics, `library` and `invariant` from the facade prelude
 - [ ] Packaging: CHANGELOG (started, `CHANGELOG.md`), Cargo metadata (`repository`, `readme`, `keywords`, `categories`), decide on `publish = false`, reserve crates.io names, prebuilt driver binaries
 
@@ -186,7 +186,7 @@ Ordered by priority. Do the soundness items before anything else.
 - [ ] Verified-Rust gallery built from the MIR fixtures (`clamp`, `safe_div`, `binary_search`, `ring_buffer`), each with expected CLI output and a note on reading the counterexample
 - [ ] `cargo generate` template (`templates/verified-crate`): macros, toolchain pin, CI workflow, example contract, pre-commit hook
 - [ ] GitHub Action `tpt-proof/verify` and a pre-commit hook
-- [ ] Finish the mdBook: tutorial (contract, counterexample, fix, kernel-checked), cookbook, "what is trusted" page
+- [x] Finish the mdBook: tutorial (contract, counterexample, fix, kernel-checked), cookbook, "what is trusted" page (docs/src/tutorial.md, cookbook.md, trusted.md; the cookbook recipes are tests in `crates/tpt-proof/tests/docs_examples.rs`)
 - [ ] VS Code extension: verify on save, SARIF diagnostics inline
 
 ### Ideas
