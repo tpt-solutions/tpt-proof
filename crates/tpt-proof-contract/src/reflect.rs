@@ -291,7 +291,7 @@ impl Translator<'_> {
 
     /// An indexed rule. Only `(_ th-lemma arith farkas c1 ... cn)` is read: a
     /// clause of integer comparisons, with one coefficient per literal.
-    fn indexed_rule(&self, head: &[Sexp], args: &[Sexp]) -> Result<Step, ReflectError> {
+    fn indexed_rule(&mut self, head: &[Sexp], args: &[Sexp]) -> Result<Step, ReflectError> {
         let atom = atom_text;
         // A bare `(_ th-lemma arith)` states an arithmetic fact without a kind.
         if matches!(
@@ -318,6 +318,9 @@ impl Translator<'_> {
             return Err(ReflectError::Unsupported(
                 "an indexed rule such as `th-lemma`".to_string(),
             ));
+        }
+        if kind == Some("farkas") && args.len() >= 2 {
+            return self.farkas_from_premises(head, args);
         }
         let [clause] = args else {
             // Z3 can also put premise proofs in the argument list of a lemma. Those
@@ -351,6 +354,70 @@ impl Translator<'_> {
     /// premises of [`ProofTerm::Farkas`], which the kernel checks, and the
     /// tautology `(not L_1 -> ... -> false) -> clause` turns the refutation into
     /// the clause.
+    /// A Farkas step whose premises are proofs of comparisons, and whose
+    /// conclusion is `false`: `((_ th-lemma arith farkas c1 ... cn) p1 ... pn
+    /// false)`. Each `pi` proves a comparison or its negation. The kernel checks
+    /// that the coefficients refute the premises together.
+    fn farkas_from_premises(&mut self, head: &[Sexp], args: &[Sexp]) -> Result<Step, ReflectError> {
+        let atom = atom_text;
+        let Some((conclusion, premises)) = args.split_last() else {
+            return Err(ReflectError::Malformed(
+                "a Farkas step with no conclusion".to_string(),
+            ));
+        };
+        if self.formula(conclusion)? != Formula::Const(false) {
+            return Err(ReflectError::Unsupported(
+                "a Farkas step with premise proofs must conclude false".to_string(),
+            ));
+        }
+        let coefficients = head[4..]
+            .iter()
+            .map(|sexp| {
+                atom(sexp)
+                    .and_then(|text| text.parse::<i128>().ok())
+                    .ok_or_else(|| {
+                        ReflectError::Malformed(
+                            "a Farkas coefficient is not an integer".to_string(),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        if coefficients.len() != premises.len() {
+            return Err(ReflectError::Malformed(format!(
+                "a Farkas step has {} premise(s) and {} coefficient(s)",
+                premises.len(),
+                coefficients.len()
+            )));
+        }
+        let mut steps = Vec::new();
+        for premise in premises {
+            steps.push(self.step(premise)?);
+        }
+        let props: Vec<Prop> = steps.iter().map(|(_, formula)| formula.encode()).collect();
+        let refutation = steps
+            .iter()
+            .rev()
+            .fold(Formula::Const(false), |acc, (_, formula)| {
+                Formula::Imp(Box::new(formula.clone()), Box::new(acc))
+            });
+        // Z3's coefficients are used when the kernel accepts them. Otherwise the
+        // coefficients are searched, as for the other lemma kinds.
+        let given = ProofTerm::Farkas(props.clone(), coefficients);
+        let certificate = if self
+            .kernel
+            .check_proof(&given, &refutation.encode())
+            .is_ok()
+        {
+            given
+        } else {
+            self.searched_certificate(props, &refutation)?
+        };
+        let proof = steps.into_iter().fold(certificate, |acc, (premise, _)| {
+            ProofTerm::App(Box::new(acc), Box::new(premise))
+        });
+        Ok((proof, Formula::Const(false)))
+    }
+
     /// A bare `(_ th-lemma arith)` clause that states the Euclidean identity of a
     /// remainder: `t = k * (t div k) + (t mod k)` among `false` literals. It is
     /// the instance of `div_mod_euclid` at `t` and `k`, with `0 < k` by evaluation.

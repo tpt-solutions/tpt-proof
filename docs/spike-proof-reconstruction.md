@@ -222,3 +222,9 @@ The `triangle-eq` lemmas were investigated and not reconstructed. The simple for
 An equivalence of two comparisons that differ in scale, such as `2 * x <= 255` and `x <= 127`, is now proved in each direction by linear arithmetic. The implication `A -> B` assumes `A` and refutes `not B` with a certificate whose coefficients are 0, 1 or 2, then applies double negation. The search tries up to three coefficient choices per premise when there are at most four premises. The kernel checks each attempt, so the search cannot make a false equivalence accepted. No new axiom.
 
 Across the 35 fixtures, 42 of 53 solver proofs are kernel-checked, and 11 are not. The remaining 11 are 3 indexed rules with a short head the reflection does not recognize, 5 theory lemmas with premise proofs in their arguments, 2 `ite` terms from signed division, and 1 equation rewritten to a conjunction. The last one needs equality reasoning that is not yet in the kernel without an axiom.
+
+### Ninth slice: Farkas steps with premise proofs
+
+Z3 also writes a Farkas step as `((_ th-lemma arith farkas c1 ... cn) p1 ... pn false)`, where each `pi` proves a comparison (or its negation) and the step concludes `false`. The reflection proves each premise, builds the Farkas certificate from the premise formulas, and applies it to the premise proofs. Z3's coefficients are used when the kernel accepts them; otherwise they are searched, as for the other lemma kinds. No new axiom.
+
+Across the 35 fixtures, 44 of 53 solver proofs are kernel-checked, and 9 are not. The remaining 9 are 4 indexed rules with a head the reflection does not recognize (the `triangle-eq` forms, which need the antisymmetry axiom that was left out), 2 theory lemmas of another shape, 2 `ite` terms from signed division, and 1 equation rewritten to a conjunction.
