@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish.workspace = true
+readme = "README.md"
+keywords = ["cli", "formal-verification", "z3", "smt", "verification"]
+categories = ["command-line-utilities", "development-tools"]
 
 [dependencies]
 tpt-proof = { version = "0.0.1", path = "../tpt-proof" }

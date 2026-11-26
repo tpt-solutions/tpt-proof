@@ -6,6 +6,10 @@ edition = "2021"
 license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
 publish = false
+repository = "https://github.com/tpt-solutions/tpt-proof"
+readme = "README.md"
+keywords = ["mir", "rustc", "smt", "z3", "verification"]
+categories = ["development-tools"]
 
 # This crate uses rustc_private, which needs a nightly compiler. It is kept out of
 # the stable workspace (see the root Cargo.toml `exclude`) and pins its own toolchain.

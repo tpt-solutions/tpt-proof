@@ -7,6 +7,10 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish.workspace = true
+repository.workspace = true
+readme = "README.md"
+keywords = ["theorem-prover", "proof-checker", "lcf", "higher-order-logic", "formal-verification"]
+categories = ["science", "development-tools"]
 
 # Zero dependencies is a hard rule: the kernel is the TCB (spec.txt §2, §4).
 # CI enforces this. Do not add [dependencies] or [dev-dependencies] here.

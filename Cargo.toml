@@ -18,6 +18,7 @@ edition = "2021"
 rust-version = "1.80"
 license = "MIT OR Apache-2.0"
 authors = ["TPT Solutions"]
+repository = "https://github.com/tpt-solutions/tpt-proof"
 publish = false
 
 [workspace.lints.rust]

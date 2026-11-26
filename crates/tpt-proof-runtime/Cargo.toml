@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish.workspace = true
+readme = "README.md"
+keywords = ["runtime-verification", "contracts", "assertions", "proptest", "debugging"]
+categories = ["development-tools::debugging", "development-tools::testing"]
 
 [lints]
 workspace = true

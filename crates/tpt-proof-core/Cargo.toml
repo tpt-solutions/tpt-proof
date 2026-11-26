@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish.workspace = true
+readme = "README.md"
+keywords = ["refinement-types", "type-state", "units", "formal-verification", "zero-cost"]
+categories = ["development-tools", "rust-patterns"]
 
 [lints]
 workspace = true

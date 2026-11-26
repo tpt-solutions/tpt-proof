@@ -7,6 +7,9 @@ rust-version.workspace = true
 license.workspace = true
 authors.workspace = true
 publish.workspace = true
+readme = "README.md"
+keywords = ["proc-macro", "contracts", "requires", "ensures", "formal-verification"]
+categories = ["development-tools::procedural-macro-helpers"]
 
 [lib]
 proc-macro = true
