@@ -172,3 +172,14 @@ The 12 that remain:
 - 3 terms with `div` or `mod`, which are not translated.
 
 The corpus counts are reproducible on this machine with the pinned nightly. They are a measurement of the fixtures, not a benchmark.
+
+### Third slice: equations and identities
+
+The linear rule now covers equations as well as `<=`, matched with either sign. A new primitive, `ProofTerm::Identity(t, s)`, proves `t = s` when the two terms have the same linear form. `monotonicity` over an equation accepts a premise only for each changed argument, as Z3 gives it, and proves the unchanged ones by reflexivity.
+
+On the same 30 fixtures, the kernel now accepts 31 of 38 solver proofs (26 before this slice). The 7 that remain:
+
+- 3 terms with `div` or `mod`, which are not translated.
+- 2 `th-lemma` steps of kind `assign-bounds`, a bound-propagation lemma whose coefficients are signed. The Farkas rule takes non-negative coefficients, and the sign convention of Z3's `assign-bounds` has not been decoded.
+- 1 `rewrite` that scales a comparison (`2 * x <= 255` to `x <= 127`), which needs integer rounding.
+- 1 `rewrite` of an equation to a conjunction of two comparisons (`x = 0` to `x <= 0 and 0 <= x`). It needs a derived rule from the equation to each conjunct.

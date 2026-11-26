@@ -10,7 +10,7 @@ A verification result is only as good as the parts it relies on. This page lists
 - the opaque `Theorem` type, which only the kernel can construct;
 - the primitive rules: implication, quantifiers over propositions and individuals, equality (reflexivity, symmetry, transitivity, congruence, and Leibniz substitution), case analysis and induction on inductive sorts;
 - the tautology rule `Taut`, which decides a propositional formula by a truth table;
-- the linear arithmetic rules `Linear` and `Farkas`, which check that two comparisons have the same linear form, and that a set of constraints combines into a contradiction (`linear.rs`, `farkas.rs`);
+- the linear arithmetic rules `Linear`, `Identity` and `Farkas`, which check that two comparisons or terms have the same linear form, and that a set of constraints combines into a contradiction (`linear.rs`, `farkas.rs`);
 - the encodings in `formula.rs` (`not`, `and`, `or`, `iff`) and the integer evaluation in `arith.rs`. Both must match the usual semantics, and both are trusted.
 
 If the kernel accepts a theorem, the theorem follows from the axioms in its dependency report and nothing else. That is the guarantee; the rest of this page is about what the axioms are and what sits outside the kernel.

@@ -86,3 +86,23 @@ fn an_equation_and_an_inequality_are_not_interchanged() {
 fn equations_with_different_forms_are_refused() {
     assert!(prove(Prop::Eq(c("x"), c("y")), Prop::Eq(c("x"), c("x"))).is_err());
 }
+
+fn identity(t: Term, s: Term) -> Result<tpt_proof_kernel::Theorem, KernelError> {
+    let claim = Prop::Eq(t.clone(), s.clone());
+    kernel().check_proof(&ProofTerm::Identity(t, s), &claim)
+}
+
+#[test]
+fn terms_with_the_same_linear_form_are_equal() {
+    // 1 + (x + y) and (x + 1) + y.
+    let left = Term::app("+", vec![c("1"), Term::app("+", vec![c("x"), c("y")])]);
+    let right = Term::app("+", vec![Term::app("+", vec![c("x"), c("1")]), c("y")]);
+    identity(left, right).expect("the forms agree");
+}
+
+#[test]
+fn terms_with_different_linear_forms_are_refused() {
+    assert!(identity(c("x"), Term::app("+", vec![c("x"), c("1")])).is_err());
+    let product = Term::app("*", vec![c("x"), c("x")]);
+    assert!(identity(product.clone(), product).is_err());
+}

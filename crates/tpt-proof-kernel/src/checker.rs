@@ -255,6 +255,7 @@ pub(crate) fn infer(
 
         ProofTerm::Farkas(premises, coefficients) => farkas::check(kernel, premises, coefficients),
         ProofTerm::Linear(a, b) => linear::check_implication(kernel, a, b),
+        ProofTerm::Identity(t, s) => linear::check_identity(kernel, t, s),
         ProofTerm::Taut(formula) => {
             taut::check(kernel, formula)?;
             Ok(formula.encode())

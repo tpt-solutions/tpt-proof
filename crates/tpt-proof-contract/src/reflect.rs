@@ -615,6 +615,15 @@ impl Translator<'_> {
         if let Some(proof) = self.axiom_instance(&Prop::Eq(left.clone(), right.clone())) {
             return Ok((proof, conclusion));
         }
+        // Two integer terms with the same linear form are equal by the identity rule.
+        let identity = ProofTerm::Identity(left.clone(), right.clone());
+        if self
+            .kernel
+            .check_proof(&identity, &Prop::Eq(left.clone(), right.clone()))
+            .is_ok()
+        {
+            return Ok((identity, conclusion));
+        }
         match self.axiom_instance(&Prop::Eq(right.clone(), left.clone())) {
             Some(proof) => Ok((ProofTerm::Sym(Box::new(proof)), conclusion)),
             None => Err(unsupported_rewrite(&conclusion)),
@@ -677,16 +686,35 @@ impl Translator<'_> {
                 _ => consequence(steps, conclusion),
             },
             Formula::Atom(Prop::Eq(Term::Fun(f, from), Term::Fun(g, to)))
-                if f == g && from.len() == to.len() && steps.len() == from.len() =>
+                if f == g && from.len() == to.len() =>
             {
-                for ((_, premise), (a, b)) in steps.iter().zip(from.iter().zip(to)) {
-                    if *premise != Formula::Atom(Prop::Eq(a.clone(), b.clone())) {
-                        return Err(ReflectError::Malformed(format!(
-                            "`{f}` arguments do not match"
-                        )));
+                // Z3 gives a premise only for each changed argument. An unchanged
+                // argument is reflexive, and each changed one is found among the
+                // premises, in either direction.
+                let mut proofs = Vec::new();
+                for (a, b) in from.iter().zip(to) {
+                    if a == b {
+                        proofs.push(ProofTerm::Refl(a.clone()));
+                        continue;
                     }
+                    let proof = steps
+                        .iter()
+                        .find_map(|(proof, formula)| match formula {
+                            Formula::Atom(Prop::Eq(l, r)) if l == a && r == b => {
+                                Some(proof.clone())
+                            }
+                            Formula::Atom(Prop::Eq(l, r)) if l == b && r == a => {
+                                Some(ProofTerm::Sym(Box::new(proof.clone())))
+                            }
+                            _ => None,
+                        })
+                        .ok_or_else(|| {
+                            ReflectError::Malformed(format!(
+                                "`{f}` arguments do not match: no premise equates them"
+                            ))
+                        })?;
+                    proofs.push(proof);
                 }
-                let proofs = steps.into_iter().map(|(proof, _)| proof).collect();
                 Ok((ProofTerm::Cong(f.clone(), proofs), conclusion))
             }
             _ => Err(ReflectError::Unsupported(format!(
@@ -852,7 +880,8 @@ impl Translator<'_> {
         let (Formula::Atom(from), Formula::Atom(to)) = (&**from, &**to) else {
             return None;
         };
-        if !matches!(from, Prop::Pred(..)) || !matches!(to, Prop::Pred(..)) {
+        let comparable = |prop: &Prop| matches!(prop, Prop::Pred(..) | Prop::Eq(..));
+        if !comparable(from) || !comparable(to) {
             return None;
         }
         let proof = ProofTerm::Linear(from.clone(), to.clone());

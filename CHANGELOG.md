@@ -23,7 +23,7 @@ and nothing is published yet.
 
 - The `auto` tactic: closes a goal by `assumption`, or else by `tauto`.
 - Kernel: two linear integer arithmetic rules, `ProofTerm::Linear` (equivalent normalized comparisons) and `ProofTerm::Farkas` (linear contradictions, the certificates of Z3's `th-lemma` clauses). Neither is an axiom; both are in `kernel/AUDIT.md`.
-- Proof reconstruction reads Z3's `th-lemma` (Farkas) steps and the comparison normalizations. On the 30 MIR fixtures, the kernel now accepts 26 of 38 solver proofs, up from 11.
+- Proof reconstruction reads Z3's `th-lemma` (Farkas) steps and the comparison normalizations. On the 30 MIR fixtures, the kernel now accepts 31 of 38 solver proofs, up from 11.
 - The `simplify` tactic: rewrites the goal with a list of equations (`Rule::Hyp`,
   `Rule::Axiom`, `Rule::Theorem`) until none applies, at most 64 times. Names are
   checked before any rewriting.

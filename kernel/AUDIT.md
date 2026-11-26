@@ -88,6 +88,8 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 
 - 2026: added two primitive rules for linear integer arithmetic, each checked in `linear.rs` and `farkas.rs`, and neither an axiom. `ProofTerm::Linear(a, b)` proves `a -> b` for two constraints `t <= s` whose differences have the same linear form, which makes them equivalent over the integers. `ProofTerm::Farkas(premises, coefficients)` proves `P_1 -> ... -> P_k -> false` when non-negative coefficients combine the premises (each `t <= s` or `t <= s -> false`) into a variable-free positive constant. Both use `i128` with overflow refused. Trust: the linear form of a term, the sign of each coefficient, and the constraint shapes. Tests: `tests/linear.rs` and `tests/farkas.rs`.
 
+- 2026: extended the linear equivalence rule to equations, which match with either sign, and added the linear identity rule (`ProofTerm::Identity(t, s)`, `linear.rs`). The identity rule proves `t = s` for two integer terms with the same linear form. It is a primitive, not an axiom, and its trust is the same linear-form computation as the other two rules. Tests: `tests/linear.rs`.
+
 ## Rules for changes
 
 - Zero dependencies (enforced in CI).

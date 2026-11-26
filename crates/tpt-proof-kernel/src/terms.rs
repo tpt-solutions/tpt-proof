@@ -473,4 +473,7 @@ pub enum ProofTerm {
     /// of `t - s`, which makes them equivalent over the integers. See the
     /// `linear` module for the rule and its trust.
     Linear(Prop, Prop),
+    /// Proves `t = s` for two integer terms with the same linear form. See the
+    /// `linear` module.
+    Identity(Term, Term),
 }

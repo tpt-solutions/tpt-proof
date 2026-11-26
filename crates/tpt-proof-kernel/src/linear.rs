@@ -142,3 +142,17 @@ pub(crate) fn check_implication(kernel: &crate::Kernel, a: &Prop, b: &Prop) -> c
     }
     Ok(Prop::imp(a.clone(), b.clone()))
 }
+
+/// Checks the linear identity rule: `t = s` for two integer terms with the same
+/// linear form. Each term denotes the same integer under every valuation of its
+/// variables, so the equation holds.
+pub(crate) fn check_identity(kernel: &crate::Kernel, t: &Term, s: &Term) -> crate::Result<Prop> {
+    let prop = Prop::Eq(t.clone(), s.clone());
+    kernel.check_prop(&prop, &[])?;
+    match (linear(t), linear(s)) {
+        (Some(left), Some(right)) if left == right => Ok(prop),
+        _ => Err(crate::KernelError::LinearRejected(
+            "the two terms have different linear forms".to_string(),
+        )),
+    }
+}
