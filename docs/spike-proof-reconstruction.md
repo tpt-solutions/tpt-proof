@@ -144,3 +144,31 @@ The 30 MIR fixtures in `crates/tpt-proof-mir/tests/fixtures` were run through th
   - 3 contain `div` or `mod` terms, which are not translated.
 - The first run accepted 6. The gap to 11 was a translation bug: a conjunction of one formula, which the translator builds and Z3 prints as the formula itself, did not match. It is fixed and has a regression test.
 - Timing: the 30 fixtures take about the same time in both modes on this machine (7 s each run), so proof mode adds little cost at this size. This is the whole corpus of fixtures, not a benchmark.
+
+## Second slice: linear arithmetic in the kernel
+
+This slice follows the revised recommendation above. It adds two primitive rules for linear integer arithmetic, each checked by a small module of the kernel (`linear.rs`, `farkas.rs`) and recorded in `kernel/AUDIT.md`. Neither is an axiom.
+
+- `ProofTerm::Linear(a, b)` proves `a -> b` for two constraints `t <= s` whose differences `t - s` have the same linear form. Over the integers that makes them equivalent. This covers Z3's normalizations such as `x <= -1 + y` to `x + (-1) * y <= -1`.
+- `ProofTerm::Farkas(premises, coefficients)` proves `P_1 -> ... -> P_k -> false`, where each premise is `t <= s` or `t <= s -> false` (`not (t <= s)`, which is `s + 1 <= t`). Non-negative coefficients must combine the premises into a variable-free positive constant. This is the certificate of a `th-lemma` clause: the negated literals are the premises, and a tautology turns the refutation into the clause.
+
+The reflection side reads `(_ th-lemma arith farkas c1 ... cn)` with its clause, and it proves the rewrites of an integer comparison by `Linear`, or a comparison that is valid over the integers (`x <= 1 + x` to `true`) by a Farkas refutation of its negation.
+
+### Measurement after the second slice
+
+The same 30 MIR fixtures, run with the pinned nightly through `tpt-proof verify` with `TPT_PROOF_VERIFY=1`. The solver answers `unsat` on 38 assertions in both modes, and 19 counterexamples are reported in both modes.
+
+| | Before | After |
+|---|---|---|
+| Kernel-checked proofs | 11 | 26 |
+| Unchecked | 27 | 12 |
+
+The 12 that remain:
+
+- 4 `monotonicity` steps over integer equations whose sides differ by normalization (`0 + (-1) * 2` against `0 + neg 2`). The linear rule covers only `<=`; extending it to `=` needs the same form check up to sign.
+- 2 indexed rules other than the Farkas shape. They were not inspected.
+- 1 `rewrite` that scales a comparison (`2 * x <= 255` against `x <= 127`). This is integer rounding, not a linear equivalence, so it needs a rule of its own.
+- 1 `rewrite` and 1 `monotonicity` over an equation with a non-linear or unnormalized side.
+- 3 terms with `div` or `mod`, which are not translated.
+
+The corpus counts are reproducible on this machine with the pinned nightly. They are a measurement of the fixtures, not a benchmark.

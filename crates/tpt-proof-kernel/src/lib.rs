@@ -14,7 +14,9 @@
 pub mod arith;
 pub mod axioms;
 mod checker;
+mod farkas;
 pub mod formula;
+mod linear;
 mod taut;
 pub mod terms;
 
@@ -113,6 +115,10 @@ pub enum KernelError {
     TooManyLetters(usize),
     /// A declaration uses a symbol that the built-in arithmetic owns.
     ReservedSymbol(String),
+    /// A Farkas certificate is not a valid refutation of its premises.
+    FarkasRejected(String),
+    /// A linear equivalence is not between two constraints with equal forms.
+    LinearRejected(String),
 }
 
 impl fmt::Display for KernelError {
@@ -184,6 +190,12 @@ impl fmt::Display for KernelError {
                 "a tautology has {count} letters, more than the {} the kernel checks",
                 taut::MAX_LETTERS
             ),
+            KernelError::LinearRejected(reason) => {
+                write!(f, "the linear equivalence is rejected: {reason}")
+            }
+            KernelError::FarkasRejected(reason) => {
+                write!(f, "the Farkas certificate is rejected: {reason}")
+            }
             KernelError::ReservedSymbol(name) => {
                 write!(f, "`{name}` is a reserved name of the kernel")
             }

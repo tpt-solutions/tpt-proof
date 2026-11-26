@@ -12,7 +12,9 @@
 //! - Case analysis and induction on an inductive sort (`ProofTerm::Cases` and
 //!   `ProofTerm::Induct`) are rejected with [`ExportError::UnsupportedRule`],
 //!   because the sort has no Lean `casesOn` or recursor in the export.
-//! - Tautologies (`ProofTerm::Taut`) are rejected with [`ExportError::UnsupportedRule`].
+//! - Tautologies (`ProofTerm::Taut`), Farkas certificates (`ProofTerm::Farkas`) and
+//!   linear equivalences (`ProofTerm::Linear`) are
+//!   rejected with [`ExportError::UnsupportedRule`].
 //!   The kernel decides them with a truth table, which has no Lean counterpart
 //!   in this export, and the built-in integers are not exported as numerals.
 //! - Only the lemmas passed to [`export`] are exported. A proof may refer to an
@@ -235,6 +237,11 @@ fn lean_proof(kernel: &Kernel, earlier: &[&str], term: &ProofTerm) -> Result<Str
             ))
         }
         ProofTerm::Taut(_) => return Err(ExportError::UnsupportedRule("tautology".to_string())),
+        ProofTerm::Farkas(..) | ProofTerm::Linear(..) => {
+            return Err(ExportError::UnsupportedRule(
+                "linear integer certificate".to_string(),
+            ))
+        }
         ProofTerm::Leibniz(variable, motive, equation, proof) => format!(
             "(Eq.subst (motive := fun ({} : _) => {}) {} {})",
             quote("var", variable)?,

@@ -464,4 +464,13 @@ pub enum ProofTerm {
     /// valuation of its letters. Ground arithmetic atoms are evaluated. See
     /// the `taut` module for the rule and its trust.
     Taut(Formula),
+    /// A linear integer contradiction: the premises, each `t <= s` or
+    /// `t <= s -> false`, and non-negative coefficients whose combination is a
+    /// positive constant with no variables. Proves `P_1 -> ... -> P_k -> false`.
+    /// See the `farkas` module for the rule and its trust.
+    Farkas(Vec<Prop>, Vec<i128>),
+    /// Proves `a -> b` for two constraints `t <= s` with the same linear form
+    /// of `t - s`, which makes them equivalent over the integers. See the
+    /// `linear` module for the rule and its trust.
+    Linear(Prop, Prop),
 }

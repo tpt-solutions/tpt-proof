@@ -5,7 +5,7 @@ use std::collections::BTreeSet;
 
 use crate::arith;
 use crate::terms::{alpha_eq, ProofTerm, Prop, Sort, Term};
-use crate::{taut, Kernel, KernelError, Result};
+use crate::{farkas, linear, taut, Kernel, KernelError, Result};
 
 /// Everything in scope while checking a term.
 #[derive(Default)]
@@ -253,6 +253,8 @@ pub(crate) fn infer(
             },
         ),
 
+        ProofTerm::Farkas(premises, coefficients) => farkas::check(kernel, premises, coefficients),
+        ProofTerm::Linear(a, b) => linear::check_implication(kernel, a, b),
         ProofTerm::Taut(formula) => {
             taut::check(kernel, formula)?;
             Ok(formula.encode())

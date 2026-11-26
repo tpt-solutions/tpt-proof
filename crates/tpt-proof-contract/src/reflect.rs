@@ -263,13 +263,102 @@ impl Translator<'_> {
                 Some((Sexp::Atom(head), rest)) if head == "let" => self.let_form(rest),
                 Some((Sexp::Atom(rule), args)) => self.rule(rule, args),
                 // An indexed rule, such as `((_ th-lemma arith farkas ...) ...)`.
-                Some((Sexp::List(_), _)) => Err(ReflectError::Unsupported(
-                    "an indexed rule such as `th-lemma`".to_string(),
-                )),
+                Some((Sexp::List(head), args)) => self.indexed_rule(head, args),
                 _ => Err(ReflectError::Malformed("empty proof step".to_string())),
             },
             Sexp::Atom(other) => Err(ReflectError::Malformed(format!("unexpected `{other}`"))),
         }
+    }
+
+    /// An indexed rule. Only `(_ th-lemma arith farkas c1 ... cn)` is read: a
+    /// clause of integer comparisons, with one coefficient per literal.
+    fn indexed_rule(&self, head: &[Sexp], args: &[Sexp]) -> Result<Step, ReflectError> {
+        let atom = atom_text;
+        let is_farkas = matches!(
+            head,
+            [first, second, third, fourth, ..]
+                if atom(first) == Some("_")
+                    && atom(second) == Some("th-lemma")
+                    && atom(third) == Some("arith")
+                    && atom(fourth) == Some("farkas")
+        );
+        if !is_farkas {
+            return Err(ReflectError::Unsupported(
+                "an indexed rule such as `th-lemma`".to_string(),
+            ));
+        }
+        let coefficients = head[4..]
+            .iter()
+            .map(|sexp| {
+                atom(sexp)
+                    .and_then(|text| text.parse::<i128>().ok())
+                    .ok_or_else(|| {
+                        ReflectError::Malformed(
+                            "a Farkas coefficient is not an integer".to_string(),
+                        )
+                    })
+            })
+            .collect::<Result<Vec<_>, _>>()?;
+        let [clause] = args else {
+            return Err(ReflectError::Malformed(
+                "a Farkas lemma has one clause".to_string(),
+            ));
+        };
+        self.farkas_lemma(&coefficients, clause)
+    }
+
+    /// Proves a clause `L_1 or ... or L_n` by a Farkas certificate. Each literal
+    /// must be an integer comparison `t <= s`. The negated literals are the
+    /// premises of [`ProofTerm::Farkas`], which the kernel checks, and the
+    /// tautology `(not L_1 -> ... -> false) -> clause` turns the refutation into
+    /// the clause.
+    fn farkas_lemma(&self, coefficients: &[i128], clause: &Sexp) -> Result<Step, ReflectError> {
+        let conclusion = self.formula(clause)?;
+        let literals = match &conclusion {
+            Formula::Or(items) => items.clone(),
+            other => vec![other.clone()],
+        };
+        if literals.len() != coefficients.len() {
+            return Err(ReflectError::Malformed(format!(
+                "a Farkas lemma has {} literal(s) and {} coefficient(s)",
+                literals.len(),
+                coefficients.len()
+            )));
+        }
+        let mut negations = Vec::new();
+        for literal in &literals {
+            match literal {
+                Formula::Atom(Prop::Pred(symbol, _)) if symbol == "<=" => {
+                    negations.push(Formula::Not(Box::new(literal.clone())));
+                }
+                // The negation of `not (t <= s)` is `t <= s`, a plain constraint.
+                Formula::Not(inner) if matches!(&**inner, Formula::Atom(Prop::Pred(symbol, _)) if symbol == "<=") =>
+                {
+                    negations.push((**inner).clone());
+                }
+                other => {
+                    return Err(ReflectError::Unsupported(format!(
+                        "a Farkas literal `{}` is not an integer comparison",
+                        describe(other)
+                    )))
+                }
+            }
+        }
+        let refutation = negations
+            .iter()
+            .rev()
+            .fold(Formula::Const(false), |acc, n| {
+                Formula::Imp(Box::new(n.clone()), Box::new(acc))
+            });
+        // The encoding of `not (t <= s)` is `(t <= s) -> false`, the form the
+        // kernel reads as a linear constraint.
+        let premises: Vec<Prop> = negations.iter().map(Formula::encode).collect();
+        let certificate = ProofTerm::Farkas(premises, coefficients.to_vec());
+        let lemma = Formula::Imp(Box::new(refutation), Box::new(conclusion.clone()));
+        Ok((
+            ProofTerm::App(Box::new(ProofTerm::Taut(lemma)), Box::new(certificate)),
+            conclusion,
+        ))
     }
 
     fn let_form(&mut self, rest: &[Sexp]) -> Result<Step, ReflectError> {
@@ -470,14 +559,40 @@ impl Translator<'_> {
             return Ok((ProofTerm::Taut(conclusion.clone()), conclusion));
         }
         match &conclusion {
+            Formula::Iff(left, right) if is_reflexive_truth(left, right) => {
+                let forward = Formula::Imp(left.clone(), right.clone());
+                let backward = Formula::Imp(right.clone(), left.clone());
+                let forward_proof = reflexive_direction(&forward);
+                let backward_proof = reflexive_direction(&backward);
+                consequence(
+                    vec![(forward_proof, forward), (backward_proof, backward)],
+                    conclusion,
+                )
+            }
+            Formula::Iff(left, right) if is_linear_truth(left, right) => {
+                let forward = Formula::Imp(left.clone(), right.clone());
+                let backward = Formula::Imp(right.clone(), left.clone());
+                let forward_proof = self
+                    .truth_direction(left, right)
+                    .ok_or_else(|| unsupported_rewrite(&conclusion))?;
+                let backward_proof = self
+                    .truth_direction(right, left)
+                    .ok_or_else(|| unsupported_rewrite(&conclusion))?;
+                consequence(
+                    vec![(forward_proof, forward), (backward_proof, backward)],
+                    conclusion,
+                )
+            }
             Formula::Iff(left, right) => {
                 let forward = Formula::Imp(left.clone(), right.clone());
                 let backward = Formula::Imp(right.clone(), left.clone());
                 let forward_proof = self
-                    .axiom_instance(&forward.encode())
+                    .linear_proof(&forward)
+                    .or_else(|| self.axiom_instance(&forward.encode()))
                     .ok_or_else(|| unsupported_rewrite(&conclusion))?;
                 let backward_proof = self
-                    .axiom_instance(&backward.encode())
+                    .linear_proof(&backward)
+                    .or_else(|| self.axiom_instance(&backward.encode()))
                     .ok_or_else(|| unsupported_rewrite(&conclusion))?;
                 consequence(
                     vec![(forward_proof, forward), (backward_proof, backward)],
@@ -696,6 +811,55 @@ impl Translator<'_> {
         self.kernel.check_proof(&proof, &formula.encode()).is_ok()
     }
 
+    /// A proof of `from -> to` where one side is `true` and the other an integer
+    /// comparison. `A -> true` is a tautology. `true -> A` holds when `A` is
+    /// valid over the integers: then `not A` is refuted by the Farkas rule, and
+    /// `not not A -> A` is a tautology. The kernel checks the result.
+    fn truth_direction(&self, from: &Formula, to: &Formula) -> Option<ProofTerm> {
+        match (from, to) {
+            (_, Formula::Const(true)) => Some(ProofTerm::Taut(Formula::Imp(
+                Box::new(from.clone()),
+                Box::new(to.clone()),
+            ))),
+            (Formula::Const(true), atom) => {
+                let negated = Formula::Not(Box::new(atom.clone()));
+                let refuted = Formula::Not(Box::new(negated.clone()));
+                let certificate = ProofTerm::Farkas(vec![negated.encode()], vec![1]);
+                let double_negation =
+                    ProofTerm::Taut(Formula::Imp(Box::new(refuted), Box::new(atom.clone())));
+                let proof = ProofTerm::Lam(
+                    "#r".to_string(),
+                    Formula::Const(true).encode(),
+                    Box::new(ProofTerm::App(
+                        Box::new(double_negation),
+                        Box::new(certificate),
+                    )),
+                );
+                let claim = Formula::Imp(Box::new(from.clone()), Box::new(to.clone())).encode();
+                self.kernel.check_proof(&proof, &claim).ok().map(|_| proof)
+            }
+            _ => None,
+        }
+    }
+
+    /// `t <= s -> t' <= s'` by the linear equivalence rule, when both sides are
+    /// integer comparisons with the same linear form. The kernel must accept the
+    /// proof, so a failed attempt falls back to the axioms.
+    fn linear_proof(&self, formula: &Formula) -> Option<ProofTerm> {
+        let Formula::Imp(from, to) = formula else {
+            return None;
+        };
+        let (Formula::Atom(from), Formula::Atom(to)) = (&**from, &**to) else {
+            return None;
+        };
+        if !matches!(from, Prop::Pred(..)) || !matches!(to, Prop::Pred(..)) {
+            return None;
+        }
+        let proof = ProofTerm::Linear(from.clone(), to.clone());
+        let claim = Prop::imp(from.clone(), to.clone());
+        self.kernel.check_proof(&proof, &claim).ok().map(|_| proof)
+    }
+
     /// An axiom instance that proves `target`, if a standard axiom has one.
     fn axiom_instance(&self, target: &Prop) -> Option<ProofTerm> {
         for axiom in self.kernel.axioms() {
@@ -729,6 +893,29 @@ impl Translator<'_> {
         }
         None
     }
+}
+
+/// Whether the equivalence is `t = t` with `true`, in either order. Z3 writes
+/// these for a reflexive equation that it has simplified.
+fn is_reflexive_truth(left: &Formula, right: &Formula) -> bool {
+    let reflexive = |formula: &Formula| matches!(formula, Formula::Atom(Prop::Eq(t, s)) if t == s);
+    let truth = |formula: &Formula| matches!(formula, Formula::Const(true));
+    (reflexive(left) && truth(right)) || (truth(left) && reflexive(right))
+}
+
+/// Proves one direction of a reflexive equivalence: `t = t -> true` is a
+/// tautology, and `true -> t = t` is reflexivity under a binder.
+fn reflexive_direction(formula: &Formula) -> ProofTerm {
+    if let Formula::Imp(from, to) = formula {
+        if let (Formula::Const(true), Formula::Atom(Prop::Eq(t, _))) = (&**from, &**to) {
+            return ProofTerm::Lam(
+                "#r".to_string(),
+                Formula::Const(true).encode(),
+                Box::new(ProofTerm::Refl(t.clone())),
+            );
+        }
+    }
+    ProofTerm::Taut(formula.clone())
 }
 
 /// The bound name of the argument that changes in a Leibniz motive.
@@ -833,5 +1020,52 @@ fn unit_connective(formula: Formula) -> Formula {
     match formula {
         Formula::And(mut items) | Formula::Or(mut items) if items.len() == 1 => items.remove(0),
         other => other,
+    }
+}
+
+/// The text of a solver atom, or `None` for a list.
+fn atom_text(sexp: &Sexp) -> Option<&str> {
+    match sexp {
+        Sexp::Atom(name) => Some(name.as_str()),
+        Sexp::List(_) => None,
+    }
+}
+
+/// Whether the equivalence is an integer comparison with `true`, in either order.
+fn is_linear_truth(left: &Formula, right: &Formula) -> bool {
+    let comparison = |formula: &Formula| matches!(formula, Formula::Atom(Prop::Pred(symbol, _)) if symbol == "<=");
+    (comparison(left) && matches!(right, Formula::Const(true)))
+        || (matches!(left, Formula::Const(true)) && comparison(right))
+}
+
+#[cfg(test)]
+mod tests {
+    use super::*;
+
+    #[test]
+    fn a_reflexive_equation_iff_true_is_accepted_in_both_directions() {
+        let mut kernel = Kernel::new();
+        kernel
+            .declare_function_sorted("x", Vec::new(), Sort::named(INT))
+            .expect("declare x");
+        let equation = Formula::Atom(Prop::Eq(Term::constant("x"), Term::constant("x")));
+        let truth = Formula::Const(true);
+        let forward = Formula::Imp(Box::new(equation.clone()), Box::new(truth.clone()));
+        let backward = Formula::Imp(Box::new(truth), Box::new(equation));
+        assert!(is_reflexive_truth(
+            &Formula::Atom(Prop::Eq(Term::constant("x"), Term::constant("x"))),
+            &Formula::Const(true)
+        ));
+        for formula in [&forward, &backward] {
+            kernel
+                .check_proof(&reflexive_direction(formula), &formula.encode())
+                .expect("the direction is a theorem");
+        }
+    }
+
+    #[test]
+    fn an_unequal_pair_is_not_a_reflexive_truth() {
+        let left = Formula::Atom(Prop::Eq(Term::constant("x"), Term::constant("y")));
+        assert!(!is_reflexive_truth(&left, &Formula::Const(true)));
     }
 }

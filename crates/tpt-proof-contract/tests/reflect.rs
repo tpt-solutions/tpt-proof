@@ -191,12 +191,12 @@ fn verify_proves_a_negated_comparison_through_the_kernel() {
 }
 
 #[test]
-fn a_vc_that_needs_a_farkas_certificate_is_unchecked_not_verified() {
+fn a_vc_that_needs_a_farkas_certificate_is_verified_through_the_kernel() {
     if tools::skip_unless("z3") {
         return;
     }
-    // Z3 proves this with a `th-lemma` (Farkas) step, which is not reconstructed
-    // yet, so the answer must not be `Verified`.
+    // Z3 proves this with a `th-lemma` (Farkas) step, and its normalization
+    // `x - y + 1` is a linear equivalence. The kernel checks both.
     let vc = Vc {
         name: "strict to non-strict".to_string(),
         vars: vec![("x".to_string(), Sort::Int), ("y".to_string(), Sort::Int)],
@@ -204,8 +204,8 @@ fn a_vc_that_needs_a_farkas_certificate_is_unchecked_not_verified() {
         goal: le(add(var("x"), int(1)), var("y")),
     };
     match verify(&vc, &SolverConfig::default()) {
-        Outcome::Unchecked { reason } => assert!(reason.contains("unsupported"), "{reason}"),
-        other => panic!("expected Unchecked, got {other:?}"),
+        Outcome::Verified => {}
+        other => panic!("expected Verified, got {other:?}"),
     }
 }
 
@@ -231,9 +231,8 @@ fn a_comparison_whose_only_changed_argument_is_not_the_first() {
     }
     // `100 <= x + 100` and `100 <= 100 + x` differ in one argument of the sum,
     // which is not the first argument of the comparison. Z3 also normalizes the
-    // comparison, which is not reconstructed yet, so this VC is not expected to
-    // verify. The test pins the fixed bug: the congruence premise is matched to
-    // its argument, so the failure is about normalization, not about premises.
+    // comparison, and the linear equivalence rule checks that step. The test
+    // pins the congruence premise: it must be matched to its argument.
     let vc = Vc {
         name: "reordered sum".to_string(),
         vars: vec![("x".to_string(), Sort::Int)],
@@ -244,10 +243,26 @@ fn a_comparison_whose_only_changed_argument_is_not_the_first() {
         ),
     };
     match verify(&vc, &SolverConfig::default()) {
-        Outcome::Unchecked { reason } => assert!(
-            !reason.contains("do not all change"),
-            "the congruence premise was not matched: {reason}"
-        ),
-        other => panic!("expected Unchecked on normalization, got {other:?}"),
+        Outcome::Verified => {}
+        other => panic!("expected Verified, got {other:?}"),
+    }
+}
+
+#[test]
+fn verify_proves_a_linear_validity_through_the_kernel() {
+    if tools::skip_unless("z3") {
+        return;
+    }
+    // `x <= 1 + x` holds for every integer x. Z3 rewrites it to `true`, and the
+    // kernel proves that rewrite by the Farkas rule on the negated comparison.
+    let vc = Vc {
+        name: "linear validity".to_string(),
+        vars: vec![("x".to_string(), Sort::Int)],
+        assumptions: vec![],
+        goal: le(var("x"), add(int(1), var("x"))),
+    };
+    match verify(&vc, &SolverConfig::default()) {
+        Outcome::Verified => {}
+        other => panic!("expected Verified, got {other:?}"),
     }
 }

@@ -10,6 +10,7 @@ A verification result is only as good as the parts it relies on. This page lists
 - the opaque `Theorem` type, which only the kernel can construct;
 - the primitive rules: implication, quantifiers over propositions and individuals, equality (reflexivity, symmetry, transitivity, congruence, and Leibniz substitution), case analysis and induction on inductive sorts;
 - the tautology rule `Taut`, which decides a propositional formula by a truth table;
+- the linear arithmetic rules `Linear` and `Farkas`, which check that two comparisons have the same linear form, and that a set of constraints combines into a contradiction (`linear.rs`, `farkas.rs`);
 - the encodings in `formula.rs` (`not`, `and`, `or`, `iff`) and the integer evaluation in `arith.rs`. Both must match the usual semantics, and both are trusted.
 
 If the kernel accepts a theorem, the theorem follows from the axioms in its dependency report and nothing else. That is the guarantee; the rest of this page is about what the axioms are and what sits outside the kernel.
@@ -35,7 +36,7 @@ These components produce proofs or propositions, and the kernel checks what they
 
 The verifier for Rust code uses an external solver, and some of its steps are trusted unless you opt in.
 
-- **Z3** is run as a subprocess (`z3` on the PATH, or `--z3-path`). By default its `unsat` verdict is trusted. Set `TPT_PROOF_VERIFY=1` and the driver asks Z3 for a proof and has the kernel check it. A result the kernel does not accept is reported as `Unchecked`, not verified. Not every Z3 step can be reconstructed yet: Farkas certificates for linear arithmetic, arithmetic normalization, `ite`, `div` and `mod` are reported as `Unchecked`.
+- **Z3** is run as a subprocess (`z3` on the PATH, or `--z3-path`). By default its `unsat` verdict is trusted. Set `TPT_PROOF_VERIFY=1` and the driver asks Z3 for a proof and has the kernel check it. A result the kernel does not accept is reported as `Unchecked`, not verified. Not every Z3 step can be reconstructed yet: integer equations under normalization, scaling by a constant, `ite`, `div` and `mod` are reported as `Unchecked`. Linear arithmetic is checked by two kernel rules, `Linear` (equivalent normalized comparisons) and `Farkas` (contradictions, the certificates of `th-lemma` clauses); their trust is in `kernel/AUDIT.md`.
 - **The MIR translator** (`tpt-proof-mir`) turns Rust into verification conditions. A mistake there, such as a missed overflow check or a wrong model of an operator, can produce conditions that are easier than the real program. The supported subset is listed in the crate, and any construct outside it is reported by name rather than assumed.
 - **The VC cache** stores `unsat` and counterexample results on disk, keyed by the encoded script and the timeout. Anyone who can write to the cache directory can plant a result, so do not share a cache directory between machines you do not trust. The cache never stores `Verified` results, because a cached proof would be forgeable in the same way.
 - **Contracts used as summaries.** When one function calls another, the callee's contract is assumed while verifying the caller. The callee is verified separately; if its contract is not verified, the caller's result depends on an assumption that nothing has checked.

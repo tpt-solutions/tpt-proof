@@ -357,6 +357,16 @@ fn proof_text(term: &ProofTerm) -> String {
             )
         }
         ProofTerm::Taut(formula) => format!("(taut {})", formula_text(formula)),
+        ProofTerm::Farkas(premises, coefficients) => {
+            let coefficients: Vec<String> = coefficients.iter().map(i128::to_string).collect();
+            let premises: Vec<String> = premises.iter().map(prop_text).collect();
+            format!(
+                "(farkas ({}) ({}))",
+                coefficients.join(" "),
+                premises.join(" ")
+            )
+        }
+        ProofTerm::Linear(a, b) => format!("(linear {} {})", prop_text(a), prop_text(b)),
     }
 }
 
@@ -720,6 +730,29 @@ fn decode_proof(sexp: &Sexp) -> Result<ProofTerm, LibraryError> {
         "taut" => {
             fixed(items, 1, head)?;
             Ok(ProofTerm::Taut(decode_formula(&items[1])?))
+        }
+        "linear" => {
+            fixed(items, 2, head)?;
+            Ok(ProofTerm::Linear(
+                decode_prop(&items[1])?,
+                decode_prop(&items[2])?,
+            ))
+        }
+        "farkas" => {
+            fixed(items, 2, head)?;
+            let coefficients = list(&items[1])?
+                .iter()
+                .map(|item| {
+                    word(item)?
+                        .parse::<i128>()
+                        .map_err(|_| malformed("a Farkas coefficient is not an integer"))
+                })
+                .collect::<Result<Vec<_>, _>>()?;
+            let premises = list(&items[2])?
+                .iter()
+                .map(decode_prop)
+                .collect::<Result<Vec<_>, _>>()?;
+            Ok(ProofTerm::Farkas(premises, coefficients))
         }
         other => Err(malformed(&format!("unknown proof form `{other}`"))),
     }
