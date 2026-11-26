@@ -54,3 +54,7 @@ The verifier for Rust code uses an external solver, and some of its steps are tr
 | Independent audit | Not started |
 
 When you report a result, state which of these you relied on, and run with `TPT_PROOF_VERIFY=1` for anything that must not depend on the solver's verdict.
+
+## Arrays
+
+The MIR translator models an array of integers as an SMT array, with `select` for a read and `store` for a write. A read's bounds check is the assertion that rustc's MIR contains, so it is verified like any other assertion. The solver's theory of arrays is trusted in default mode, like the rest of the solver's answers. In proof mode the kernel does not yet check array terms, so a VC that mentions an array is reported as unchecked, never as verified.

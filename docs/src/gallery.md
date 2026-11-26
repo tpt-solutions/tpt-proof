@@ -92,7 +92,62 @@ count_up: assertion at bb2: unchecked (solver unsat, proof not accepted): unsupp
 
 The solver proves the assertion. The kernel has no check yet for Z3's `assign-bounds` lemma, so the answer is reported as unchecked, not verified. See [the reflection notes](../../docs/spike-proof-reconstruction.md).
 
+## 6. Reading an array: `array_get`
+
+[`array_get.rs`](../../examples/gallery/array_get.rs) reads `a[i]` for an array of four bytes. The read is guarded by a bounds check that rustc emits, so the verifier turns it into an assertion: `i < 4`.
+
+```text
+get: assertion at bb0: proved (solver unsat, not kernel-checked)
+```
+
+Without the precondition, [`array_get_unchecked.rs`](../../examples/gallery/array_get_unchecked.rs) gives a counterexample with the index that is out of bounds:
+
+```text
+get: assertion at bb0: counterexample: _2 = 4, _1 = all 0
+```
+
+`_1` is the array, shown as `all 0`: every element is zero. A model that changes some elements prints them after `except`, as `all 0 except {1: 7}`.
+
+## 7. Writing an array: `array_set`
+
+[`array_set.rs`](../../examples/gallery/array_set.rs) writes an element and reads it back, and its postcondition says the read returns the value written:
+
+```text
+set_then_get: assertion at bb0: proved (solver unsat, not kernel-checked)
+set_then_get: assertion at bb1: proved (solver unsat, not kernel-checked)
+set_then_get: ensures |result| *result == v: proved (solver unsat, not kernel-checked)
+```
+
+The write is translated as an array that equals the old one except at the index. The solver's theory of arrays does the rest.
+
+## 8. A search over an array: `binary_search`
+
+[`binary_search.rs`](../../examples/gallery/binary_search.rs) is a binary search over a four-element array. Its contract talks about indices only, because a specification cannot yet mention array contents. The invariant `lo <= hi && hi <= 4` keeps every read `a[mid]` in bounds, and it makes the result at most 4.
+
+```text
+search: loop at line 9: invariant holds on entry: proved (solver unsat, not kernel-checked)
+search: ensures |result| *result <= 4: proved (solver unsat, not kernel-checked)
+search: assertion at bb2: proved (solver unsat, not kernel-checked)
+...
+search: loop at line 9: invariant is preserved: proved (solver unsat, not kernel-checked)
+```
+
+The output is longer than the other examples because each read and each arithmetic check has its own line. Every line is proved, and the exit status is 0.
+
+In proof mode the kernel cannot yet check this example. The reads need the array theory, and the midpoint needs division, so most lines say `unchecked`. The solver's answer is still the answer the verifier gives in default mode.
+
+## 9. A ring buffer write: `ring_write`
+
+[`ring_write.rs`](../../examples/gallery/ring_write.rs) writes into a four-slot buffer at `head % 4`. The index is in bounds for every head, so both assertions are proved:
+
+```text
+write: assertion at bb0: proved (solver unsat, not kernel-checked)
+write: assertion at bb1: proved (solver unsat, not kernel-checked)
+```
+
+In proof mode the first assertion is kernel-checked, and the second is reported as unchecked, because the kernel does not translate `mod` yet.
+
 ## Not yet in the gallery
 
-- A binary search or a ring buffer. Both index arrays, and array bounds are not translated yet (see the open items in `TODO.md`), so the verifier reports them as unsupported rather than verifying them.
+- A function whose postcondition describes the contents of an array, such as "the result is an element of `a`". The specification language has no array syntax yet, and the kernel cannot check the array theory.
 - A function that calls another contracted function on a path the caller must prove. The `call_verified.rs` and `call_violated.rs` fixtures in `crates/tpt-proof-mir/tests/fixtures` show that case.

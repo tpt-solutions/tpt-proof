@@ -1,8 +1,8 @@
 //! Verification conditions: the logical formulas a function's contract reduces to.
 //!
-//! This is a small first-order language over integers and booleans. Translation
-//! from Rust MIR (spec.txt §5) is not built yet, so VCs are constructed by hand
-//! for now.
+//! This is a small first-order language over integers, booleans, and arrays of
+//! integers. The MIR translator in `tpt-proof-mir` builds VCs from functions; this
+//! crate is the language they are written in.
 
 /// The sort (type) of a variable in a verification condition.
 #[derive(Debug, Clone, Copy, PartialEq, Eq)]
@@ -11,6 +11,10 @@ pub enum Sort {
     Int,
     /// Booleans.
     Bool,
+    /// Arrays of integers indexed by integers, with the SMT theory of arrays. An
+    /// array of fixed length `N` is an `IntArray` whose valid indices are `0..N`;
+    /// the bounds are checked by the translator, not by the array sort.
+    IntArray,
 }
 
 /// A formula or term. Integer and boolean terms share one type; [`crate::smt`]
@@ -51,6 +55,12 @@ pub enum Expr {
     Or(Vec<Expr>),
     /// Implication.
     Implies(Box<Expr>, Box<Expr>),
+    /// The element at an index of an array: `select(array, index)`.
+    Select(Box<Expr>, Box<Expr>),
+    /// The array that equals `array` except at `index`, which holds `value`.
+    Store(Box<Expr>, Box<Expr>, Box<Expr>),
+    /// The array whose every element is `value`.
+    ConstArray(Box<Expr>),
 }
 
 /// A verification condition: under the declared variables and the assumptions,

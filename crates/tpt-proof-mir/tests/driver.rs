@@ -363,3 +363,55 @@ fn a_valid_timeout_still_proves_the_fixture() {
     let output = run_with_env("overflow_safe.rs", &[("TPT_PROOF_TIMEOUT_MS", "5000")]);
     assert_eq!(output.status.code(), Some(0));
 }
+
+#[test]
+fn an_array_read_out_of_bounds_gets_a_counterexample_with_the_index() {
+    let report = verdicts_for("array_get_unchecked.rs");
+    let line = line_for(&report, "get");
+    assert!(
+        line.contains("counterexample") && line.contains("_2 = 4"),
+        "{line}"
+    );
+}
+
+#[test]
+fn an_array_read_under_its_precondition_is_proved() {
+    let report = verdicts_for("array_get.rs");
+    let line = line_for(&report, "get");
+    assert!(line.contains("proved"), "{line}");
+}
+
+#[test]
+fn a_write_then_read_of_an_array_returns_the_value_written() {
+    let report = verdicts_for("array_set.rs");
+    let line = report
+        .lines()
+        .find(|line| line.contains("ensures"))
+        .expect("the postcondition has a line");
+    assert!(line.contains("proved"), "{line}");
+    assert!(
+        !report.contains("unsupported") && !report.contains("counterexample"),
+        "{report}"
+    );
+}
+
+#[test]
+fn binary_search_over_an_array_is_proved_in_bounds() {
+    let report = verdicts_for("binary_search.rs");
+    assert!(!report.contains("unsupported"), "{report}");
+    assert!(!report.contains("counterexample"), "{report}");
+    assert!(
+        report.contains("search: ensures") && report.contains("proved"),
+        "{report}"
+    );
+}
+
+#[test]
+fn a_ring_buffer_write_at_a_modulo_index_is_in_bounds() {
+    let report = verdicts_for("ring_write.rs");
+    assert!(
+        !report.contains("counterexample") && !report.contains("unsupported"),
+        "{report}"
+    );
+    assert_eq!(exit_code_for("ring_write.rs"), Some(0));
+}

@@ -102,7 +102,9 @@ pub fn generate(function: &Function) -> Result<Vec<Vc>, WpError> {
     for (name, min, max) in &function.ranges {
         match function.vars.iter().find(|(n, _)| n == name) {
             None => return Err(WpError::UndeclaredVariable(name.clone())),
-            Some((_, Sort::Bool)) => return Err(WpError::NotAnInteger(name.clone())),
+            Some((_, Sort::Bool | Sort::IntArray)) => {
+                return Err(WpError::NotAnInteger(name.clone()))
+            }
             Some((_, Sort::Int)) if min > max => return Err(WpError::EmptyRange(name.clone())),
             Some((_, Sort::Int)) => {}
         }
@@ -292,6 +294,9 @@ fn substitute(expr: &Expr, name: &str, replacement: &Expr) -> Expr {
         Expr::And(items) => Expr::And(items.iter().map(go).collect()),
         Expr::Or(items) => Expr::Or(items.iter().map(go).collect()),
         Expr::Implies(a, b) => Expr::Implies(boxed(a), boxed(b)),
+        Expr::Select(a, i) => Expr::Select(boxed(a), boxed(i)),
+        Expr::Store(a, i, v) => Expr::Store(boxed(a), boxed(i), boxed(v)),
+        Expr::ConstArray(v) => Expr::ConstArray(boxed(v)),
     }
 }
 

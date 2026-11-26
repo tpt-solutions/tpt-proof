@@ -300,8 +300,10 @@ impl Translator<'_> {
             })
             .collect::<Result<Vec<_>, _>>()?;
         let [clause] = args else {
-            return Err(ReflectError::Malformed(
-                "a Farkas lemma has one clause".to_string(),
+            // Z3 can also put premise proofs in the argument list of a lemma. Those
+            // are not decoded, so the step is reported as unsupported.
+            return Err(ReflectError::Unsupported(
+                "a Farkas lemma with premise proofs in its arguments".to_string(),
             ));
         };
         self.farkas_lemma(&coefficients, clause)

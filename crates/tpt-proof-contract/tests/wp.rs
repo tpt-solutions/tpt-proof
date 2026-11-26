@@ -59,6 +59,11 @@ fn eval(expr: &Expr, env: &BTreeMap<String, Val>) -> Val {
         Expr::And(items) => Val::Bool(items.iter().all(|e| boolean(eval(e, env)))),
         Expr::Or(items) => Val::Bool(items.iter().any(|e| boolean(eval(e, env)))),
         Expr::Implies(a, b) => Val::Bool(!boolean(eval(a, env)) || boolean(eval(b, env))),
+        // The brute-force oracle enumerates integers and booleans only. Array VCs are
+        // checked by the solver tests instead.
+        Expr::Select(..) | Expr::Store(..) | Expr::ConstArray(_) => {
+            panic!("the oracle does not evaluate arrays")
+        }
     }
 }
 
@@ -72,6 +77,7 @@ fn find_counterexample(vc: &Vc, range: i64) -> Option<BTreeMap<String, Val>> {
             let values = match sort {
                 Sort::Int => (-range..=range).map(Val::Int).collect(),
                 Sort::Bool => vec![Val::Bool(false), Val::Bool(true)],
+                Sort::IntArray => panic!("the oracle does not enumerate arrays"),
             };
             (name.clone(), values)
         })

@@ -21,6 +21,7 @@ and nothing is published yet.
 
 ### Added
 
+- Verification of arrays of integers. The MIR translator reads `[T; N]` values, element reads and writes, `[v; N]` and literal arrays, and rustc's bounds checks become assertions. The solver's array theory decides them. Proof mode does not yet check array terms; they are reported as unchecked.
 - The `auto` tactic: closes a goal by `assumption`, or else by `tauto`.
 - Kernel: two linear integer arithmetic rules, `ProofTerm::Linear` (equivalent normalized comparisons) and `ProofTerm::Farkas` (linear contradictions, the certificates of Z3's `th-lemma` clauses). Neither is an axiom; both are in `kernel/AUDIT.md`.
 - Proof reconstruction reads Z3's `th-lemma` (Farkas) steps and the comparison normalizations. On the 30 MIR fixtures, the kernel now accepts 31 of 38 solver proofs, up from 11.

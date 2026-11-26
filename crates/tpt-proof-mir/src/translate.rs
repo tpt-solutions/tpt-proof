@@ -24,8 +24,8 @@ use rustc_attr_ir::{Attribute, AttributeKind};
 use rustc_hir::def_id::DefId;
 use rustc_index::Idx;
 use rustc_middle::mir::{
-    BasicBlock, BinOp, Body, BorrowKind, Local, Operand, Place, PlaceElem, Rvalue, StatementKind,
-    TerminatorKind, VarDebugInfoContents,
+    AggregateKind, BasicBlock, BinOp, Body, BorrowKind, Local, Operand, Place, PlaceElem, Rvalue,
+    StatementKind, TerminatorKind, VarDebugInfoContents,
 };
 use rustc_middle::ty::{self, IntTy, Ty, TyCtxt, TypingEnv, UintTy};
 use rustc_span::DUMMY_SP;
@@ -528,10 +528,35 @@ impl<'tcx> Translator<'_, 'tcx> {
         rvalue: &Rvalue<'tcx>,
         state: &mut State,
     ) -> Result<(), Unsupported> {
+        if let [PlaceElem::Index(index)] = place.projection.as_slice() {
+            return self.assign_element(place.local, *index, rvalue, state);
+        }
         if !place.projection.is_empty() {
             return unsupported("assignments through projections are not supported");
         }
         match rvalue {
+            Rvalue::Repeat(operand, _) => {
+                // `[value; N]`: every element holds the value.
+                let value = self.operand(operand, state)?;
+                state
+                    .locals
+                    .insert(place.local, Expr::ConstArray(Box::new(value)));
+                Ok(())
+            }
+            Rvalue::Aggregate(kind, fields) if matches!(**kind, AggregateKind::Array(_)) => {
+                // `[a, b, c]`: the array starts from zeros and stores each element.
+                let mut value = Expr::ConstArray(Box::new(Expr::Int(0)));
+                for (index, field) in fields.iter().enumerate() {
+                    let element = self.operand(field, state)?;
+                    value = Expr::Store(
+                        Box::new(value),
+                        Box::new(Expr::Int(index as i64)),
+                        Box::new(element),
+                    );
+                }
+                state.locals.insert(place.local, value);
+                Ok(())
+            }
             Rvalue::Use(operand, _) => {
                 let value = self.operand(operand, state)?;
                 state.locals.insert(place.local, value);
@@ -614,6 +639,37 @@ impl<'tcx> Translator<'_, 'tcx> {
         }
     }
 
+    /// The current value of a local, or an error if it has none.
+    fn local_value(&self, local: Local, state: &State) -> Result<Expr, Unsupported> {
+        state
+            .locals
+            .get(&local)
+            .cloned()
+            .map_or_else(|| unsupported("use of an uninitialized local"), Ok)
+    }
+
+    /// `array[index] = value`, where `array` is a local. The array becomes the
+    /// array that equals it except at `index`. Only a plain value can be stored.
+    fn assign_element(
+        &mut self,
+        array: Local,
+        index: Local,
+        rvalue: &Rvalue<'tcx>,
+        state: &mut State,
+    ) -> Result<(), Unsupported> {
+        let Rvalue::Use(operand, _) = rvalue else {
+            return unsupported("only a plain value can be stored into an array element");
+        };
+        let value = self.operand(operand, state)?;
+        let target = self.local_value(array, state)?;
+        let position = self.local_value(index, state)?;
+        state.locals.insert(
+            array,
+            Expr::Store(Box::new(target), Box::new(position), Box::new(value)),
+        );
+        Ok(())
+    }
+
     fn operand(&self, operand: &Operand<'tcx>, state: &State) -> Result<Expr, Unsupported> {
         match operand {
             Operand::Copy(place) | Operand::Move(place) => self.place(place, state),
@@ -656,6 +712,11 @@ impl<'tcx> Translator<'_, 'tcx> {
                 .get(&(place.local, field.index()))
                 .cloned()
                 .map_or_else(|| unsupported("use of an uninitialized field"), Ok),
+            [PlaceElem::Index(index)] => {
+                let array = self.local_value(place.local, state)?;
+                let position = self.local_value(*index, state)?;
+                Ok(Expr::Select(Box::new(array), Box::new(position)))
+            }
             _ => unsupported("projections are not supported"),
         }
     }
@@ -680,6 +741,10 @@ impl<'tcx> Translator<'_, 'tcx> {
             [PlaceElem::Field(field, _)] => match local_ty.kind() {
                 ty::Tuple(fields) => Ok(fields[field.index()]),
                 _ => unsupported("field of a non-tuple"),
+            },
+            [PlaceElem::Index(_)] => match local_ty.kind() {
+                ty::Array(element, _) => Ok(*element),
+                _ => unsupported("indexing a value that is not an array"),
             },
             _ => unsupported("projections are not supported"),
         }
@@ -841,6 +906,12 @@ fn sort_of(ty: Ty<'_>) -> Result<Sort, Unsupported> {
         Ok(Sort::Bool)
     } else if int_range(ty)?.is_some() {
         Ok(Sort::Int)
+    } else if let ty::Array(element, _) = ty.kind() {
+        if int_range(*element)?.is_some() {
+            Ok(Sort::IntArray)
+        } else {
+            unsupported(format!("arrays of {element} are not supported"))
+        }
     } else {
         unsupported(format!("values of type {ty} are not supported"))
     }

@@ -79,6 +79,7 @@ fn render_script(vc: &Vc, proof: bool) -> Result<String, EncodeError> {
         let sort = match sort {
             Sort::Int => "Int",
             Sort::Bool => "Bool",
+            Sort::IntArray => "(Array Int Int)",
         };
         script.push_str(&format!("(declare-const {name} {sort})\n"));
     }
@@ -120,6 +121,9 @@ fn render(expr: &Expr) -> String {
         Expr::And(items) => nary("and", items, "true"),
         Expr::Or(items) => nary("or", items, "false"),
         Expr::Implies(a, b) => binary("=>", a, b),
+        Expr::Select(a, i) => binary("select", a, i),
+        Expr::Store(a, i, v) => format!("(store {} {} {})", render(a), render(i), render(v)),
+        Expr::ConstArray(v) => format!("((as const (Array Int Int)) {})", render(v)),
     }
 }
 
@@ -150,6 +154,21 @@ fn sort_of(expr: &Expr, env: &[(&str, Sort)]) -> Result<Sort, EncodeError> {
     match expr {
         Expr::Int(_) => Ok(Sort::Int),
         Expr::Bool(_) => Ok(Sort::Bool),
+        Expr::Select(a, i) => {
+            expect_sort(a, Sort::IntArray, env)?;
+            expect_sort(i, Sort::Int, env)?;
+            Ok(Sort::Int)
+        }
+        Expr::Store(a, i, v) => {
+            expect_sort(a, Sort::IntArray, env)?;
+            expect_sort(i, Sort::Int, env)?;
+            expect_sort(v, Sort::Int, env)?;
+            Ok(Sort::IntArray)
+        }
+        Expr::ConstArray(v) => {
+            expect_sort(v, Sort::Int, env)?;
+            Ok(Sort::IntArray)
+        }
         Expr::Var(name) => lookup(name),
         Expr::Ite(c, a, b) => {
             expect_sort(c, Sort::Bool, env)?;
@@ -633,9 +652,48 @@ fn render_value(value: &Sexp) -> String {
         Sexp::Atom(atom) => atom.clone(),
         Sexp::List(items) => match items.as_slice() {
             [Sexp::Atom(op), Sexp::Atom(n)] if op == "-" => format!("-{n}"),
-            _ => format!("{items:?}"),
+            _ => render_array(value).unwrap_or_else(|| format!("{items:?}")),
         },
     }
+}
+
+/// Renders an array value of the model: a constant array with stores on top,
+/// as `all 0` or `all 0 except {1: 7, 3: 2}`. The stores are read from the
+/// outermost, the latest write, so the value shown for an index is its last write.
+fn render_array(value: &Sexp) -> Option<String> {
+    let mut writes: Vec<(String, String)> = Vec::new();
+    let mut current = value;
+    let base = loop {
+        match current {
+            Sexp::List(items) => match items.as_slice() {
+                [Sexp::Atom(op), array, index, element] if op == "store" => {
+                    let entry = (render_value(index), render_value(element));
+                    if !writes.iter().any(|(seen, _)| *seen == entry.0) {
+                        writes.push(entry);
+                    }
+                    current = array;
+                }
+                [Sexp::List(head), default] => match head.as_slice() {
+                    [Sexp::Atom(as_), Sexp::Atom(constant), _]
+                        if as_ == "as" && constant == "const" =>
+                    {
+                        break render_value(default);
+                    }
+                    _ => return None,
+                },
+                _ => return None,
+            },
+            Sexp::Atom(_) => return None,
+        }
+    };
+    if writes.is_empty() {
+        return Some(format!("all {base}"));
+    }
+    let entries: Vec<String> = writes
+        .iter()
+        .map(|(index, element)| format!("{index}: {element}"))
+        .collect();
+    Some(format!("all {base} except {{{}}}", entries.join(", ")))
 }
 
 fn collect_definitions(sexps: &[Sexp], out: &mut Vec<(String, String)>) {
