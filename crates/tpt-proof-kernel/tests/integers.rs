@@ -147,7 +147,7 @@ fn standard_axioms_are_declared_once_and_are_idempotent() {
     let mut kernel = Kernel::new();
     declare_standard(&mut kernel).unwrap();
     declare_standard(&mut kernel).unwrap();
-    assert_eq!(kernel.axioms().count(), 8);
+    assert_eq!(kernel.axioms().count(), 9);
 }
 
 #[test]
@@ -202,4 +202,48 @@ fn an_instance_of_a_standard_axiom_is_a_checked_proof() {
         ),
     );
     assert!(kernel.check_proof(&instance, &wrong).is_err());
+}
+
+#[test]
+fn antisymmetry_of_the_order_applies_to_constants() {
+    // The instance at 2 and 2 says 2 <= 2 and 2 <= 2 give 2 = 2. The instance at 2
+    // and 3 is accepted too: its premises are false, so the implication holds.
+    let mut kernel = Kernel::new();
+    declare_standard(&mut kernel).unwrap();
+    let le =
+        |a: &str, b: &str| Prop::Pred("<=".to_string(), vec![Term::constant(a), Term::constant(b)]);
+    let instance = ProofTerm::IndApp(
+        Box::new(ProofTerm::IndApp(
+            Box::new(ProofTerm::Axiom("le_antisymm".to_string())),
+            Term::constant("2"),
+        )),
+        Term::constant("2"),
+    );
+    let claim = Prop::imp(
+        le("2", "2"),
+        Prop::imp(
+            le("2", "2"),
+            Prop::Eq(Term::constant("2"), Term::constant("2")),
+        ),
+    );
+    kernel
+        .check_proof(&instance, &claim)
+        .expect("the instance at 2");
+    let wrong = Prop::imp(
+        le("2", "3"),
+        Prop::imp(
+            le("3", "2"),
+            Prop::Eq(Term::constant("2"), Term::constant("3")),
+        ),
+    );
+    let wrong_proof = ProofTerm::IndApp(
+        Box::new(ProofTerm::IndApp(
+            Box::new(ProofTerm::Axiom("le_antisymm".to_string())),
+            Term::constant("2"),
+        )),
+        Term::constant("3"),
+    );
+    kernel
+        .check_proof(&wrong_proof, &wrong)
+        .expect("the instance at 2 and 3");
 }

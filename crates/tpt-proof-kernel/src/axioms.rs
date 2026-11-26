@@ -93,6 +93,14 @@ fn standard() -> Vec<(&'static str, Prop, &'static str)> {
             for_all_int(&["x"], Prop::Eq(add(x(), Term::constant("0")), x())),
             "Zero is the additive identity for integers.",
         ),
+        (
+            "le_antisymm",
+            for_all_int(
+                &["x", "y"],
+                Prop::imp(le(x(), y()), Prop::imp(le(y(), x()), Prop::Eq(x(), y()))),
+            ),
+            "The order on the integers is antisymmetric: if x <= y and y <= x then x = y. Each side is an integer, so the equation holds in both directions of the order.",
+        ),
     ]
 }
 

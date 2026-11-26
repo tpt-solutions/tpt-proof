@@ -301,5 +301,5 @@ fn tautologies_and_the_standard_integers_save_and_load() {
         Some(&lemmas[1].prop)
     );
 
-    assert_eq!(loaded.axioms().count(), 8);
+    assert_eq!(loaded.axioms().count(), 9);
 }

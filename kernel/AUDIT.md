@@ -37,7 +37,7 @@ The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel)
 
 ## Trusted axioms
 
-Built-in: none. `Kernel::new` declares the sort `Int` and the operations `+`, `-`, `*`, `neg` and the predicates `<=`, `<` with their usual meaning, but it declares no axioms. Implication, quantifiers, and equality are primitive rules. `axioms::declare_standard` adds the eight integer axioms below; a caller opts in.
+Built-in: none. `Kernel::new` declares the sort `Int` and the operations `+`, `-`, `*`, `neg` and the predicates `<=`, `<` with their usual meaning, but it declares no axioms. Implication, quantifiers, and equality are primitive rules. `axioms::declare_standard` adds the nine integer axioms below; a caller opts in.
 
 Trusted primitive: the tautology rule (`ProofTerm::Taut`). It accepts a formula when a truth table over its letters shows it true, and it evaluates ground atoms with the built-in arithmetic. It makes the kernel classical: `not not p -> p` is accepted with no excluded-middle axiom. Its soundness depends on two things, which are also trusted: the encodings in `formula.rs` must be classically equivalent to the connectives they stand for (`not p` as `p -> false`, `and` and `or` as second-order encodings, `iff` as two implications), and the built-in evaluation in `arith.rs` must match the usual integer semantics. Numerals must be canonical (no leading zeros), and an overflow in `i128` makes an atom a letter, which can only make the rule reject more.
 
@@ -51,6 +51,7 @@ The integer axioms, each a closed proposition over `Int`, each true over the int
 - `add_cancel_left_bwd`: `x = y -> z + x = z + y`.
 - `add_comm`: `x + y = y + x`.
 - `add_zero`: `x + 0 = x`.
+- `le_antisymm`: `x <= y -> y <= x -> x = y`. The order on the integers is antisymmetric. Added in a dedicated change, after review of its justification (see the change log).
 
 These were chosen for the proofs that Z3 produces for the VCs in the reconstruction tests. They do not cover Z3's arithmetic normalization (for example `x - y` as `x + (-1) * y`) or its Farkas certificates (`th-lemma`), which are not reconstructed.
 
@@ -96,6 +97,8 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 - 2026: added integer arrays: the sort `IntArray`, the functions `select`, `store` and `const_array`, and the laws `select_store_same`, `select_store_other` and `select_const`. Declared by `axioms::declare_arrays`. These are the standard laws of the array theory. Tests: `tests/division_arrays.rs`.
 - 2026: the Farkas rule accepts strict comparisons (`t < s` as `t + 1 <= s`). The reflection uses it with the existing division laws to refute comparisons on remainders. No new axioms.
 - 2026: the linear forms of `linear.rs` treat a non-linear term (a product of variables, `div`, `mod`, an array read) as an opaque integer. Identities and contradictions found this way hold for every integer value of those terms, so the rules are no less sound.
+
+- 2026: added the integer axiom `le_antisymm` (`x <= y -> y <= x -> x = y`) to `axioms::declare_standard`. It is the only way to derive equality from two inequalities, which the `triangle-eq` theory lemmas of Z3 need. It is standard for the integers. Approved by the maintainer for a dedicated review; this entry records the change and its justification in `axioms.rs`.
 
 ## Rules for changes
 
