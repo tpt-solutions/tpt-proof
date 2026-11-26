@@ -123,3 +123,12 @@ fn the_claim_must_match_the_premises() {
         .check_proof(&ProofTerm::Farkas(premises, vec![1, 1]), &wrong)
         .is_err());
 }
+
+#[test]
+fn a_strict_premise_is_a_constraint() {
+    // x < y and y <= x: x + 1 <= y and y <= x give 1 <= 0.
+    let strict = Prop::Pred("<".to_string(), vec![x(), y()]);
+    check(vec![strict.clone(), le(y(), x())], vec![1, 1]).expect("valid");
+    // x < y alone is consistent.
+    assert!(check(vec![strict], vec![1]).is_err());
+}

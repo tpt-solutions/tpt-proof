@@ -198,3 +198,9 @@ On the 30 original fixtures the kernel result is the same as before: 31 of 38 so
 - 1 normalization of an equation between linear terms, which is not yet reconstructed.
 
 The last item is why `0 <= x mod 4 < 4` is proved by the solver but not by the kernel. The test in `tests/arrays.rs` pins that state.
+
+### Fifth slice: remainder bounds
+
+Z3 proves `0 <= x mod 4 < 4` by rewriting each comparison to `true`, or `4 <= x mod 4` to `false`. The reflection now refutes such a comparison, or its negation, from the division laws. For each `t mod k` with a positive numeral `k`, it applies `mod_nonneg` and `mod_lt_divisor` to `t` and `k`, with the ground proof of `0 < k`. These facts are added as premises of a Farkas certificate, whose coefficients are 0 or 1. The search tries each choice and the kernel checks the one that works. The Farkas rule now also accepts strict comparisons, since over the integers `t < s` is `t + 1 <= s`.
+
+Across the 35 fixtures, 39 of 53 solver proofs are kernel-checked, and 14 are not. The remaining 14 are the same kinds as before, less the two remainder rewrites: 8 `th-lemma` steps, 2 Farkas lemmas with premise proofs in their arguments, 2 `ite` terms from signed division, one comparison that scales by a constant, and one equation normalization.

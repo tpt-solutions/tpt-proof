@@ -106,13 +106,13 @@ fn an_index_must_be_an_integer_and_an_array_must_be_an_array() {
 }
 
 #[test]
-fn a_remainder_by_a_positive_divisor_is_in_range_for_the_solver_but_not_yet_for_the_kernel() {
+fn a_remainder_by_a_positive_divisor_is_in_range_through_the_kernel() {
     if tools::skip_unless("z3") {
         return;
     }
-    // 0 <= x mod 4 < 4 for every integer x. The solver proves it. The kernel has
-    // the Euclidean laws of `mod`, but Z3 reasons about the bound with a rewrite
-    // that the reflection does not yet derive, so the answer must not be Verified.
+    // 0 <= x mod 4 < 4 for every integer x. The kernel proves each comparison from
+    // the Euclidean laws of `mod`: the remainder is not negative, and it is below
+    // the divisor. Z3 gives the bounds as rewrites, which the reflection now derives.
     let mod4 = Expr::Rem(Box::new(var("x")), Box::new(int(4)));
     let vc = Vc {
         name: "remainder range".to_string(),
@@ -128,7 +128,7 @@ fn a_remainder_by_a_positive_divisor_is_in_range_for_the_solver_but_not_yet_for_
         Outcome::SolverUnsat
     ));
     match tpt_proof_contract::verify(&vc, &SolverConfig::default()) {
-        Outcome::Unchecked { reason } => assert!(reason.contains("unsupported"), "{reason}"),
-        other => panic!("expected Unchecked, got {other:?}"),
+        Outcome::Verified => {}
+        other => panic!("expected Verified, got {other:?}"),
     }
 }

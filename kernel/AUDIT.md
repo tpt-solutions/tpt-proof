@@ -94,6 +94,7 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 
 - 2026: added the integer division and remainder operations `div` and `mod` (built-in, like `+`), with their Euclidean laws as trusted axioms `div_mod_euclid`, `mod_nonneg` and `mod_lt_divisor`. They hold for a positive divisor. Ground evaluation of `div` and `mod` for a positive divisor is in `arith.rs`. Declared by `axioms::declare_division`. Tests: `tests/division_arrays.rs`.
 - 2026: added integer arrays: the sort `IntArray`, the functions `select`, `store` and `const_array`, and the laws `select_store_same`, `select_store_other` and `select_const`. Declared by `axioms::declare_arrays`. These are the standard laws of the array theory. Tests: `tests/division_arrays.rs`.
+- 2026: the Farkas rule accepts strict comparisons (`t < s` as `t + 1 <= s`). The reflection uses it with the existing division laws to refute comparisons on remainders. No new axioms.
 - 2026: the linear forms of `linear.rs` treat a non-linear term (a product of variables, `div`, `mod`, an array read) as an opaque integer. Identities and contradictions found this way hold for every integer value of those terms, so the rules are no less sound.
 
 ## Rules for changes

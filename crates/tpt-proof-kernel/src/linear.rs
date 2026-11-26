@@ -83,9 +83,16 @@ pub(crate) fn linear(term: &Term) -> Option<Linear> {
 }
 /// The constraint `f <= 0` that a premise states, or `None` if it has another shape.
 pub(crate) fn constraint(premise: &Prop) -> Option<Linear> {
+    // Over the integers `t < s` is `t + 1 <= s`, and `not (t < s)` is `s <= t`.
     match premise {
         Prop::Pred(symbol, args) if symbol == "<=" => match args.as_slice() {
             [t, s] => linear(t)?.add(&linear(s)?, -1),
+            _ => None,
+        },
+        Prop::Pred(symbol, args) if symbol == "<" => match args.as_slice() {
+            [t, s] => linear(t)?
+                .add(&linear(s)?, -1)?
+                .add(&Linear::constant(1), 1),
             _ => None,
         },
         Prop::Imp(atom, bottom) if matches!(&**bottom, Prop::Atom(name) if name == FALSE) => {
@@ -95,6 +102,11 @@ pub(crate) fn constraint(premise: &Prop) -> Option<Linear> {
                     [t, s] => linear(s)?
                         .add(&linear(t)?, -1)?
                         .add(&Linear::constant(1), 1),
+                    _ => None,
+                },
+                // not (t < s) is s <= t, that is s - t <= 0.
+                Prop::Pred(symbol, args) if symbol == "<" => match args.as_slice() {
+                    [t, s] => linear(s)?.add(&linear(t)?, -1),
                     _ => None,
                 },
                 _ => None,

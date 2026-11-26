@@ -649,6 +649,20 @@ impl Translator<'_> {
                     conclusion,
                 )
             }
+            Formula::Iff(left, right) if is_linear_refutation(left, right) => {
+                let forward = Formula::Imp(left.clone(), right.clone());
+                let backward = Formula::Imp(right.clone(), left.clone());
+                let forward_proof = self
+                    .refutation_direction(left, right)
+                    .ok_or_else(|| unsupported_rewrite(&conclusion))?;
+                let backward_proof = self
+                    .refutation_direction(right, left)
+                    .ok_or_else(|| unsupported_rewrite(&conclusion))?;
+                consequence(
+                    vec![(forward_proof, forward), (backward_proof, backward)],
+                    conclusion,
+                )
+            }
             Formula::Iff(left, right) if is_linear_truth(left, right) => {
                 let forward = Formula::Imp(left.clone(), right.clone());
                 let backward = Formula::Imp(right.clone(), left.clone());
@@ -921,8 +935,7 @@ impl Translator<'_> {
 
     /// A proof of `from -> to` where one side is `true` and the other an integer
     /// comparison. `A -> true` is a tautology. `true -> A` holds when `A` is
-    /// valid over the integers: then `not A` is refuted by the Farkas rule, and
-    /// `not not A -> A` is a tautology. The kernel checks the result.
+    /// valid over the integers, which is `not not A -> A` once `not A` is refuted.
     fn truth_direction(&self, from: &Formula, to: &Formula) -> Option<ProofTerm> {
         match (from, to) {
             (_, Formula::Const(true)) => Some(ProofTerm::Taut(Formula::Imp(
@@ -930,19 +943,36 @@ impl Translator<'_> {
                 Box::new(to.clone()),
             ))),
             (Formula::Const(true), atom) => {
-                let negated = Formula::Not(Box::new(atom.clone()));
-                let refuted = Formula::Not(Box::new(negated.clone()));
-                let certificate = ProofTerm::Farkas(vec![negated.encode()], vec![1]);
-                let double_negation =
-                    ProofTerm::Taut(Formula::Imp(Box::new(refuted), Box::new(atom.clone())));
+                let negated = Formula::Not(Box::new(atom.clone())).encode();
+                let refuted = contradiction_proof(self.kernel, &negated)?;
+                let refuted_claim = Formula::Not(Box::new(Formula::Not(Box::new(atom.clone()))));
+                let double_negation = ProofTerm::Taut(Formula::Imp(
+                    Box::new(refuted_claim),
+                    Box::new(atom.clone()),
+                ));
                 let proof = ProofTerm::Lam(
                     "#r".to_string(),
                     Formula::Const(true).encode(),
-                    Box::new(ProofTerm::App(
-                        Box::new(double_negation),
-                        Box::new(certificate),
-                    )),
+                    Box::new(ProofTerm::App(Box::new(double_negation), Box::new(refuted))),
                 );
+                let claim = Formula::Imp(Box::new(from.clone()), Box::new(to.clone())).encode();
+                self.kernel.check_proof(&proof, &claim).ok().map(|_| proof)
+            }
+            _ => None,
+        }
+    }
+
+    /// A proof of `from -> to` where one side is `false` and the other an integer
+    /// comparison. `false -> A` is a tautology. `A -> false` holds when the
+    /// comparison contradicts the facts that the division laws give about it.
+    fn refutation_direction(&self, from: &Formula, to: &Formula) -> Option<ProofTerm> {
+        match (from, to) {
+            (Formula::Const(false), _) => Some(ProofTerm::Taut(Formula::Imp(
+                Box::new(from.clone()),
+                Box::new(to.clone()),
+            ))),
+            (atom, Formula::Const(false)) => {
+                let proof = contradiction_proof(self.kernel, &atom.encode())?;
                 let claim = Formula::Imp(Box::new(from.clone()), Box::new(to.clone())).encode();
                 self.kernel.check_proof(&proof, &claim).ok().map(|_| proof)
             }
@@ -1142,9 +1172,114 @@ fn atom_text(sexp: &Sexp) -> Option<&str> {
 
 /// Whether the equivalence is an integer comparison with `true`, in either order.
 fn is_linear_truth(left: &Formula, right: &Formula) -> bool {
-    let comparison = |formula: &Formula| matches!(formula, Formula::Atom(Prop::Pred(symbol, _)) if symbol == "<=");
+    let comparison = |formula: &Formula| matches!(formula, Formula::Atom(Prop::Pred(symbol, _)) if symbol == "<=" || symbol == "<");
     (comparison(left) && matches!(right, Formula::Const(true)))
         || (matches!(left, Formula::Const(true)) && comparison(right))
+}
+
+/// Whether the equivalence is an integer comparison with `false`, in either order.
+fn is_linear_refutation(left: &Formula, right: &Formula) -> bool {
+    let comparison = |formula: &Formula| matches!(formula, Formula::Atom(Prop::Pred(symbol, _)) if symbol == "<=" || symbol == "<");
+    (comparison(left) && matches!(right, Formula::Const(false)))
+        || (matches!(left, Formula::Const(false)) && comparison(right))
+}
+
+/// A proof of `case -> false`, where `case` is a comparison or its negation.
+/// The Farkas rule refutes `case` together with facts about the remainders that
+/// `case` mentions (see [`division_facts`]). Each fact is applied in turn, so the
+/// result is `case -> false`. The kernel checks it; `None` if it does not refute.
+fn contradiction_proof(kernel: &Kernel, case: &Prop) -> Option<ProofTerm> {
+    let facts = division_facts(case);
+    let mut premises: Vec<Prop> = facts.iter().map(|(fact, _)| fact.clone()).collect();
+    premises.push(case.clone());
+    let count = premises.len();
+    // The certificate's coefficients are 0 or 1. The search tries each choice and
+    // the kernel checks the one that works, so a wrong guess costs time, not truth.
+    let claim = Prop::imp(case.clone(), Prop::atom("false"));
+    for mask in 0..(1u64 << count.min(20)) {
+        let coefficients: Vec<i128> = (0..count).map(|bit| ((mask >> bit) & 1) as i128).collect();
+        let certificate = ProofTerm::Farkas(premises.clone(), coefficients);
+        let proof = facts.iter().fold(certificate, |acc, (_, fact)| {
+            ProofTerm::App(Box::new(acc), Box::new(fact.clone()))
+        });
+        if kernel.check_proof(&proof, &claim).is_ok() {
+            return Some(proof);
+        }
+    }
+    None
+}
+
+/// The facts the division laws give about each `t mod k` in `prop`, for a positive
+/// numeral `k`: the remainder is not negative, and it is below `k`. Each fact is a
+/// proof of a comparison, obtained by applying the axiom to `t` and `k` and to the
+/// ground proof that `0 < k`.
+fn division_facts(prop: &Prop) -> Vec<(Prop, ProofTerm)> {
+    let mut remainders = Vec::new();
+    collect_remainders_in_prop(prop, &mut remainders);
+
+    let mut facts = Vec::new();
+    for (term, divisor) in remainders {
+        let k = Term::constant(&divisor);
+        let positive = Formula::Atom(Prop::Pred(
+            "<".to_string(),
+            vec![Term::constant("0"), k.clone()],
+        ));
+        let modulo = Term::app("mod", vec![term.clone(), k.clone()]);
+        let instance = |axiom: &str| {
+            ProofTerm::App(
+                Box::new(ProofTerm::IndApp(
+                    Box::new(ProofTerm::IndApp(
+                        Box::new(ProofTerm::Axiom(axiom.to_string())),
+                        term.clone(),
+                    )),
+                    k.clone(),
+                )),
+                Box::new(ProofTerm::Taut(positive.clone())),
+            )
+        };
+        facts.push((
+            Prop::Pred("<=".to_string(), vec![Term::constant("0"), modulo.clone()]),
+            instance("mod_nonneg"),
+        ));
+        facts.push((
+            Prop::Pred("<".to_string(), vec![modulo, k.clone()]),
+            instance("mod_lt_divisor"),
+        ));
+    }
+    facts
+}
+
+/// The `(t, k)` of each `t mod k` in `prop` with a positive numeral `k`.
+fn collect_remainders_in_prop(prop: &Prop, out: &mut Vec<(Term, String)>) {
+    match prop {
+        Prop::Pred(_, args) => args.iter().for_each(|t| collect_remainders(t, out)),
+        Prop::Eq(a, b) => {
+            collect_remainders(a, out);
+            collect_remainders(b, out);
+        }
+        Prop::Imp(a, b) => {
+            collect_remainders_in_prop(a, out);
+            collect_remainders_in_prop(b, out);
+        }
+        _ => {}
+    }
+}
+
+fn collect_remainders(term: &Term, out: &mut Vec<(Term, String)>) {
+    if let Term::Fun(symbol, args) = term {
+        if symbol == "mod" {
+            if let [dividend, Term::Fun(divisor, no_args)] = args.as_slice() {
+                let positive = no_args.is_empty()
+                    && divisor != "0"
+                    && divisor.bytes().all(|b| b.is_ascii_digit())
+                    && !divisor.starts_with('0');
+                if positive && !out.iter().any(|(t, k)| t == dividend && k == divisor) {
+                    out.push((dividend.clone(), divisor.clone()));
+                }
+            }
+        }
+        args.iter().for_each(|arg| collect_remainders(arg, out));
+    }
 }
 
 #[cfg(test)]
