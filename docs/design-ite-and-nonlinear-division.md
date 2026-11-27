@@ -14,9 +14,11 @@ Options:
 - **B. Fresh constants with defining axioms.** Replace each `ite(c, a, b)` by a fresh constant `t` and add `c -> t = a` and `not c -> t = b`. This is conservative, because `t` is defined only by these two laws. Each law is a new axiom, so it needs the same review, once per term shape rather than once per proof. Nothing in the checker changes.
 - **C. Case split in the reflection.** A goal mentioning `ite(c, a, b)` is proved in each case of `c`, by the tautology rule on `c`. This needs the rule that rewrites under a case split, which the kernel does not have. Not recommended.
 
-Recommendation: **B**. It keeps the checker unchanged, the trusted addition is two laws per `ite` shape, and each law is a closed integer fact that a reviewer can check by reading. If the number of shapes grows, move to **A**.
+Correction (found when applying the recommendation): option B does not work as written. The terms that Z3 writes mention the VC's free variables (`_1`, `_2`), and a kernel axiom must be closed, so the laws cannot be axioms. They would have to be definitional assumptions carried into each VC's claim, which changes what the reflection proves and what callers receive. That is a larger change than the note said.
 
-Decision needed: approve B (new axioms, reviewed as in the `le_antisymm` change), or A (checker change, reviewed as a kernel change).
+Revised recommendation: **A**, a `Term::Ite` in the kernel. Free variables are then ordinary terms, the checker stays simple, and no axiom is needed. It is still a trusted-base change, so it needs its own reviewed commit.
+
+Decision needed: approve A (checker change, reviewed as a kernel change), or the definitional-assumption design (B, revised) if the claim shape is acceptable.
 
 ## 2. Division by a variable
 
