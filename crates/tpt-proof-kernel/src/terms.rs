@@ -45,6 +45,9 @@ pub enum Term {
     /// An uninterpreted function symbol applied to arguments. A symbol with no
     /// arguments is a constant.
     Fun(String, Vec<Term>),
+    /// A conditional term: `if cond then a else b`. The branches have the same sort.
+    /// The condition is a proposition, so the term is decided once its condition is.
+    Ite(Box<Prop>, Box<Term>, Box<Term>),
 }
 
 impl Term {
@@ -72,6 +75,11 @@ impl Term {
                 }
             }
             Term::Fun(_, args) => args.iter().for_each(|arg| arg.free_vars(out)),
+            Term::Ite(cond, then, otherwise) => {
+                cond.free_individuals(out);
+                then.free_vars(out);
+                otherwise.free_vars(out);
+            }
         }
     }
 
@@ -86,6 +94,11 @@ impl Term {
                     .map(|arg| arg.substitute(name, replacement))
                     .collect(),
             ),
+            Term::Ite(cond, then, otherwise) => Term::Ite(
+                Box::new(cond.subst_individual(name, replacement)),
+                Box::new(then.substitute(name, replacement)),
+                Box::new(otherwise.substitute(name, replacement)),
+            ),
         }
     }
 }
@@ -94,6 +107,9 @@ impl fmt::Display for Term {
     fn fmt(&self, f: &mut fmt::Formatter<'_>) -> fmt::Result {
         match self {
             Term::Var(name) => write!(f, "{name}"),
+            Term::Ite(cond, then, otherwise) => {
+                write!(f, "(if {cond} then {then} else {otherwise})")
+            }
             Term::Fun(symbol, args) if args.is_empty() => write!(f, "{symbol}"),
             Term::Fun(symbol, args) => {
                 let args: Vec<String> = args.iter().map(|a| a.to_string()).collect();
@@ -353,6 +369,15 @@ fn term_alpha_eq(a: &Term, b: &Term, scope: &Scope) -> bool {
             f == g
                 && xs.len() == ys.len()
                 && xs.iter().zip(ys).all(|(x, y)| term_alpha_eq(x, y, scope))
+        }
+        (Term::Ite(c1, t1, e1), Term::Ite(c2, t2, e2)) => {
+            let mut inner = Scope {
+                props: scope.props.clone(),
+                individuals: scope.individuals.clone(),
+            };
+            alpha_eq_in(c1, c2, &mut inner)
+                && term_alpha_eq(t1, t2, scope)
+                && term_alpha_eq(e1, e2, scope)
         }
         _ => false,
     }

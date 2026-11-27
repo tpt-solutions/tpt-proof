@@ -864,6 +864,18 @@ impl Kernel {
             Term::Fun(symbol, args) if args.is_empty() && arith::is_numeral(symbol) => {
                 Ok(Sort::named(arith::INT))
             }
+            Term::Ite(cond, then, otherwise) => {
+                self.check_prop(cond, scope)?;
+                let sort = self.check_term_in(then, scope)?;
+                let found = self.check_term_in(otherwise, scope)?;
+                if found != sort {
+                    return Err(KernelError::SortMismatch {
+                        expected: sort,
+                        found,
+                    });
+                }
+                Ok(sort)
+            }
             Term::Fun(symbol, args) => {
                 let signature = self
                     .functions
@@ -1013,6 +1025,13 @@ impl Kernel {
 fn check_structural(symbol: &str, term: &Term, recursive: &[String]) -> Result<()> {
     match term {
         Term::Var(_) => Ok(()),
+        Term::Ite(cond, then, otherwise) => {
+            if prop_mentions(cond, symbol) {
+                return Err(KernelError::NotStructural(symbol.to_string()));
+            }
+            check_structural(symbol, then, recursive)?;
+            check_structural(symbol, otherwise, recursive)
+        }
         Term::Fun(name, args) if name == symbol => match args.split_first() {
             Some((Term::Var(arg), rest)) if recursive.contains(arg) => rest
                 .iter()
@@ -1022,5 +1041,27 @@ fn check_structural(symbol: &str, term: &Term, recursive: &[String]) -> Result<(
         Term::Fun(_, args) => args
             .iter()
             .try_for_each(|arg| check_structural(symbol, arg, recursive)),
+    }
+}
+
+/// Whether a proposition mentions the function symbol `symbol` in a term.
+fn prop_mentions(prop: &Prop, symbol: &str) -> bool {
+    match prop {
+        Prop::Atom(_) => false,
+        Prop::Imp(a, b) => prop_mentions(a, symbol) || prop_mentions(b, symbol),
+        Prop::Forall(_, body) | Prop::ForallInd(_, _, body) => prop_mentions(body, symbol),
+        Prop::Eq(a, b) => term_mentions(a, symbol) || term_mentions(b, symbol),
+        Prop::Pred(_, args) => args.iter().any(|arg| term_mentions(arg, symbol)),
+    }
+}
+
+/// Whether a term mentions the function symbol `symbol`.
+fn term_mentions(term: &Term, symbol: &str) -> bool {
+    match term {
+        Term::Var(_) => false,
+        Term::Fun(name, args) => name == symbol || args.iter().any(|arg| term_mentions(arg, symbol)),
+        Term::Ite(cond, then, otherwise) => {
+            prop_mentions(cond, symbol) || term_mentions(then, symbol) || term_mentions(otherwise, symbol)
+        }
     }
 }

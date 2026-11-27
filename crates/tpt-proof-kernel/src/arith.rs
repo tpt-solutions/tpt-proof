@@ -35,6 +35,10 @@ pub(crate) fn is_reserved(symbol: &str) -> bool {
 pub(crate) fn eval_term(term: &Term) -> Option<i128> {
     match term {
         Term::Var(_) => None,
+        Term::Ite(cond, then, otherwise) => match eval_atom(cond)? {
+            true => eval_term(then),
+            false => eval_term(otherwise),
+        },
         Term::Fun(symbol, args) => match (symbol.as_str(), args.as_slice()) {
             (numeral, []) if is_numeral(numeral) => numeral.parse().ok(),
             ("neg", [a]) => eval_term(a)?.checked_neg(),
@@ -53,6 +57,7 @@ pub(crate) fn eval_term(term: &Term) -> Option<i128> {
 pub(crate) fn eval_atom(prop: &Prop) -> Option<bool> {
     match prop {
         Prop::Atom(name) if name == crate::formula::FALSE => Some(false),
+        Prop::Imp(a, b) => Some(!eval_atom(a)? || eval_atom(b)?),
         Prop::Eq(a, b) => Some(eval_term(a)? == eval_term(b)?),
         Prop::Pred(symbol, args) => match (symbol.as_str(), args.as_slice()) {
             ("<=", [a, b]) => Some(eval_term(a)? <= eval_term(b)?),
@@ -63,14 +68,14 @@ pub(crate) fn eval_atom(prop: &Prop) -> Option<bool> {
     }
 }
 
-/// Euclidean division for a positive divisor: the quotient and the remainder with
-/// `a = b * q + r` and `0 <= r < b`. Other divisors are not evaluated, so the
-/// atom stays an unknown letter.
+/// Euclidean division: the quotient and the remainder with `a = b * q + r` and
+/// `0 <= r < |b|`, as SMT-LIB defines `div` and `mod` for every non-zero divisor.
+/// A zero divisor is not evaluated, so the atom stays an unknown letter.
 pub(crate) fn euclidean(a: i128, b: i128) -> Option<(i128, i128)> {
-    if b <= 0 {
+    if b == 0 {
         return None;
     }
-    let r = a.rem_euclid(b);
+    let r = a.rem_euclid(b.checked_abs()?);
     let q = a.checked_sub(r)?.checked_div(b)?;
     Some((q, r))
 }

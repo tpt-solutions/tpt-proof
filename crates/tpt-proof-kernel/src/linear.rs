@@ -66,6 +66,7 @@ pub(crate) fn linear(term: &Term) -> Option<Linear> {
     let opaque = || Some(Linear::variable(&format!("{term:?}")));
     match term {
         Term::Var(_) => None,
+        Term::Ite(..) => opaque(),
         Term::Fun(symbol, args) => match (symbol.as_str(), args.as_slice()) {
             (numeral, []) if is_numeral(numeral) => Some(Linear::constant(numeral.parse().ok()?)),
             (name, []) => Some(Linear::variable(name)),

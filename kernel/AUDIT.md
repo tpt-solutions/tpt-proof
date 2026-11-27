@@ -100,6 +100,8 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 
 - 2026: added the integer axiom `le_antisymm` (`x <= y -> y <= x -> x = y`) to `axioms::declare_standard`. It is the only way to derive equality from two inequalities, which the `triangle-eq` theory lemmas of Z3 need. It is standard for the integers. Approved by the maintainer for a dedicated review; this entry records the change and its justification in `axioms.rs`.
 
+- 2026: added conditional terms `Term::Ite(cond, a, b)`, where the condition is a proposition. The checker requires a well-formed condition and branches of one sort. Ground conditionals are evaluated by the built-in arithmetic. The Lean export and the library format handle them (the export rejects them). Two meanings were extended with the same change: `div` and `mod` now evaluate for negative divisors, as SMT-LIB defines them (`0 <= r < |b|`), and a ground proposition built from `->` is evaluated classically in the tautology rule. Tests: `tests/conditional.rs`. This is a trusted-base change, reviewed as a kernel change.
+
 ## Rules for changes
 
 - Zero dependencies (enforced in CI).
