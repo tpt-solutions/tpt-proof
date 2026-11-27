@@ -1287,16 +1287,17 @@ impl Translator<'_> {
 
     /// A rewrite is accepted when it is a tautology, or when each direction (or
     /// the one equation) is an instance of a standard axiom.
-    /// A proof of the comparison `c`, from a hypothesis of the VC. A hypothesis that
+    /// A proof of the comparison `c`, from a hypothesis of the VC: a hypothesis that
     /// is `c` itself, or a comparison or an equation from which `c` follows by linear
     /// arithmetic. `None` when no hypothesis gives it.
     fn prove_from_hypotheses(&self, c: &Prop) -> Option<ProofTerm> {
         let goal = Formula::Atom(c.clone());
         for (index, hypothesis) in self.hypotheses.iter().enumerate() {
-            if hypothesis.encode() == *c {
-                return Some(ProofTerm::Var(hypothesis_name(index)));
-            }
-            for (fact, proof) in self.hypothesis_inequalities(index, hypothesis) {
+            let facts = self.hypothesis_facts(ProofTerm::Var(hypothesis_name(index)), hypothesis);
+            for (fact, proof) in facts {
+                if fact == *c {
+                    return Some(proof);
+                }
                 if let Some(implication) = self.comparison_implication(&Formula::Atom(fact), &goal) {
                     let applied = ProofTerm::App(Box::new(implication), Box::new(proof));
                     if self.kernel.check_proof(&applied, c).is_ok() {
@@ -1308,38 +1309,51 @@ impl Translator<'_> {
         None
     }
 
-    /// The comparisons a hypothesis gives: itself when it is a comparison, and the
-    /// two inequalities when it is an equation `t = s`, each proved by Leibniz
+    /// The comparisons that a proof of a hypothesis gives. A conjunction gives each
+    /// conjunct, proved by a tautology that projects it. A comparison gives itself,
+    /// and an equation `t = s` gives the two inequalities, each by Leibniz
     /// substitution into `t <= t` or `s <= s`.
-    fn hypothesis_inequalities(&self, index: usize, hypothesis: &Formula) -> Vec<(Prop, ProofTerm)> {
-        match hypothesis {
+    fn hypothesis_facts(&self, proof: ProofTerm, formula: &Formula) -> Vec<(Prop, ProofTerm)> {
+        match formula {
+            Formula::And(items) => items
+                .iter()
+                .flat_map(|item| {
+                    let projection = ProofTerm::App(
+                        Box::new(ProofTerm::Taut(Formula::Imp(
+                            Box::new(formula.clone()),
+                            Box::new(item.clone()),
+                        ))),
+                        Box::new(proof.clone()),
+                    );
+                    self.hypothesis_facts(projection, item)
+                })
+                .collect(),
             Formula::Atom(prop @ Prop::Pred(symbol, _)) if symbol == "<=" || symbol == "<" => {
-                vec![(prop.clone(), ProofTerm::Var(hypothesis_name(index)))]
+                vec![(prop.clone(), proof)]
             }
             Formula::Atom(Prop::Eq(t, s)) => {
-                let name = hypothesis_name(index);
                 let mut out = Vec::new();
                 // t <= s: the motive `t <= v` is closed at v = t, and t = s moves it.
                 let forward_motive = Prop::Pred("<=".to_string(), vec![t.clone(), Term::var(MOTIVE)]);
                 if let Some(closed) = closed_comparison(self.kernel, &forward_motive.subst_individual(MOTIVE, t)) {
-                    let proof = ProofTerm::Leibniz(
+                    let inequality = ProofTerm::Leibniz(
                         MOTIVE.to_string(),
                         forward_motive,
-                        Box::new(ProofTerm::Var(name.clone())),
+                        Box::new(proof.clone()),
                         Box::new(closed),
                     );
-                    out.push((Prop::Pred("<=".to_string(), vec![t.clone(), s.clone()]), proof));
+                    out.push((Prop::Pred("<=".to_string(), vec![t.clone(), s.clone()]), inequality));
                 }
                 // s <= t: the motive `s <= v` is closed at v = s, and s = t moves it.
                 let backward_motive = Prop::Pred("<=".to_string(), vec![s.clone(), Term::var(MOTIVE)]);
                 if let Some(closed) = closed_comparison(self.kernel, &backward_motive.subst_individual(MOTIVE, s)) {
-                    let proof = ProofTerm::Leibniz(
+                    let inequality = ProofTerm::Leibniz(
                         MOTIVE.to_string(),
                         backward_motive,
-                        Box::new(ProofTerm::Sym(Box::new(ProofTerm::Var(name)))),
+                        Box::new(ProofTerm::Sym(Box::new(proof))),
                         Box::new(closed),
                     );
-                    out.push((Prop::Pred("<=".to_string(), vec![s.clone(), t.clone()]), proof));
+                    out.push((Prop::Pred("<=".to_string(), vec![s.clone(), t.clone()]), inequality));
                 }
                 out
             }
@@ -1352,6 +1366,7 @@ impl Translator<'_> {
     /// (with the hypothesis as the implication) and applies the conditional law.
     /// `None` when no hypothesis decides the condition.
     fn simplify_condition(&self, term: &Term) -> Option<(ProofTerm, Term)> {
+        if std::env::var("TPT_DBG3").is_ok() { eprintln!("DEBUG_SC {term:?} hyp_count={}", self.hypotheses.len()); }
         let Term::Ite(condition, then, otherwise) = term else {
             return None;
         };
@@ -1438,6 +1453,7 @@ impl Translator<'_> {
     /// An equation with a conditional side that a hypothesis decides: the side is
     /// replaced by its branch, and the rest of the equation is proved as before.
     fn rewrite_conditional_side(&self, conclusion: &Formula) -> Result<Option<Step>, ReflectError> {
+        if std::env::var("TPT_DBG3").is_ok() { eprintln!("DEBUG_RCS {conclusion:?}"); }
         let Formula::Atom(Prop::Eq(left, right)) = conclusion else {
             return Ok(None);
         };
