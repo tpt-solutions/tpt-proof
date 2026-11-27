@@ -1287,7 +1287,181 @@ impl Translator<'_> {
 
     /// A rewrite is accepted when it is a tautology, or when each direction (or
     /// the one equation) is an instance of a standard axiom.
+    /// A proof of the comparison `c`, from a hypothesis of the VC. A hypothesis that
+    /// is `c` itself, or a comparison or an equation from which `c` follows by linear
+    /// arithmetic. `None` when no hypothesis gives it.
+    fn prove_from_hypotheses(&self, c: &Prop) -> Option<ProofTerm> {
+        let goal = Formula::Atom(c.clone());
+        for (index, hypothesis) in self.hypotheses.iter().enumerate() {
+            if hypothesis.encode() == *c {
+                return Some(ProofTerm::Var(hypothesis_name(index)));
+            }
+            for (fact, proof) in self.hypothesis_inequalities(index, hypothesis) {
+                if let Some(implication) = self.comparison_implication(&Formula::Atom(fact), &goal) {
+                    let applied = ProofTerm::App(Box::new(implication), Box::new(proof));
+                    if self.kernel.check_proof(&applied, c).is_ok() {
+                        return Some(applied);
+                    }
+                }
+            }
+        }
+        None
+    }
+
+    /// The comparisons a hypothesis gives: itself when it is a comparison, and the
+    /// two inequalities when it is an equation `t = s`, each proved by Leibniz
+    /// substitution into `t <= t` or `s <= s`.
+    fn hypothesis_inequalities(&self, index: usize, hypothesis: &Formula) -> Vec<(Prop, ProofTerm)> {
+        match hypothesis {
+            Formula::Atom(prop @ Prop::Pred(symbol, _)) if symbol == "<=" || symbol == "<" => {
+                vec![(prop.clone(), ProofTerm::Var(hypothesis_name(index)))]
+            }
+            Formula::Atom(Prop::Eq(t, s)) => {
+                let name = hypothesis_name(index);
+                let mut out = Vec::new();
+                // t <= s: the motive `t <= v` is closed at v = t, and t = s moves it.
+                let forward_motive = Prop::Pred("<=".to_string(), vec![t.clone(), Term::var(MOTIVE)]);
+                if let Some(closed) = closed_comparison(self.kernel, &forward_motive.subst_individual(MOTIVE, t)) {
+                    let proof = ProofTerm::Leibniz(
+                        MOTIVE.to_string(),
+                        forward_motive,
+                        Box::new(ProofTerm::Var(name.clone())),
+                        Box::new(closed),
+                    );
+                    out.push((Prop::Pred("<=".to_string(), vec![t.clone(), s.clone()]), proof));
+                }
+                // s <= t: the motive `s <= v` is closed at v = s, and s = t moves it.
+                let backward_motive = Prop::Pred("<=".to_string(), vec![s.clone(), Term::var(MOTIVE)]);
+                if let Some(closed) = closed_comparison(self.kernel, &backward_motive.subst_individual(MOTIVE, s)) {
+                    let proof = ProofTerm::Leibniz(
+                        MOTIVE.to_string(),
+                        backward_motive,
+                        Box::new(ProofTerm::Sym(Box::new(ProofTerm::Var(name)))),
+                        Box::new(closed),
+                    );
+                    out.push((Prop::Pred("<=".to_string(), vec![s.clone(), t.clone()]), proof));
+                }
+                out
+            }
+            _ => Vec::new(),
+        }
+    }
+
+    /// A conditional term whose condition is a hypothesis of the VC, true or
+    /// false, equals its branch. The proof rewrites the condition to the constant
+    /// (with the hypothesis as the implication) and applies the conditional law.
+    /// `None` when no hypothesis decides the condition.
+    fn simplify_condition(&self, term: &Term) -> Option<(ProofTerm, Term)> {
+        let Term::Ite(condition, then, otherwise) = term else {
+            return None;
+        };
+        let truth = Formula::Const(true).encode();
+        let falsity = Formula::Const(false).encode();
+        // A hypothesis `c` makes the condition true.
+        if let Some(proof_of_condition) = self.prove_from_hypotheses(condition) {
+            let to_true = ProofTerm::Taut(Formula::Imp(
+                Box::new(Formula::Atom((**condition).clone())),
+                Box::new(Formula::Const(true)),
+            ));
+            let from_true = ProofTerm::Lam(
+                "#t".to_string(),
+                truth.clone(),
+                Box::new(proof_of_condition),
+            );
+            let rewrite_condition = ProofTerm::IteCondition(
+                Box::new(to_true),
+                Box::new(from_true),
+                (**then).clone(),
+                (**otherwise).clone(),
+            );
+            let law = ProofTerm::IndApp(
+                Box::new(ProofTerm::IndApp(
+                    Box::new(ProofTerm::Axiom("ite_true".to_string())),
+                    (**then).clone(),
+                )),
+                (**otherwise).clone(),
+            );
+            return Some((
+                ProofTerm::Trans(Box::new(rewrite_condition), Box::new(law)),
+                (**then).clone(),
+            ));
+        }
+        // A hypothesis `not c` makes the condition false.
+        let to_false = match self.hypotheses.iter().position(|hypothesis| {
+            matches!(hypothesis, Formula::Not(inner) if inner.encode() == **condition)
+        }) {
+            Some(index) => ProofTerm::Var(hypothesis_name(index)),
+            None => {
+                // The condition is `not p`, and a proof of `p` refutes it.
+                let Prop::Imp(inner, bottom) = &**condition else {
+                    return None;
+                };
+                if !matches!(&**bottom, Prop::Atom(name) if name == "false") {
+                    return None;
+                }
+                let proof_of_p = self.prove_from_hypotheses(inner)?;
+                let name = "#f".to_string();
+                ProofTerm::Lam(
+                    name.clone(),
+                    (**condition).clone(),
+                    Box::new(ProofTerm::App(
+                        Box::new(ProofTerm::Var(name)),
+                        Box::new(proof_of_p),
+                    )),
+                )
+            }
+        };
+        let from_false = ProofTerm::Taut(Formula::Imp(
+            Box::new(Formula::Const(false)),
+            Box::new(Formula::Atom((**condition).clone())),
+        ));
+        let rewrite_condition = ProofTerm::IteCondition(
+            Box::new(to_false),
+            Box::new(from_false),
+            (**then).clone(),
+            (**otherwise).clone(),
+        );
+        let law = ProofTerm::IndApp(
+            Box::new(ProofTerm::IndApp(
+                Box::new(ProofTerm::Axiom("ite_false".to_string())),
+                (**then).clone(),
+            )),
+            (**otherwise).clone(),
+        );
+        let _ = falsity;
+        Some((
+            ProofTerm::Trans(Box::new(rewrite_condition), Box::new(law)),
+            (**otherwise).clone(),
+        ))
+    }
+
+    /// An equation with a conditional side that a hypothesis decides: the side is
+    /// replaced by its branch, and the rest of the equation is proved as before.
+    fn rewrite_conditional_side(&self, conclusion: &Formula) -> Result<Option<Step>, ReflectError> {
+        let Formula::Atom(Prop::Eq(left, right)) = conclusion else {
+            return Ok(None);
+        };
+        if let Some((proof, simplified)) = self.simplify_condition(left) {
+            let (rest, _) = self.rewrite(Formula::Atom(Prop::Eq(simplified, right.clone())))?;
+            return Ok(Some((
+                ProofTerm::Trans(Box::new(proof), Box::new(rest)),
+                conclusion.clone(),
+            )));
+        }
+        if let Some((proof, simplified)) = self.simplify_condition(right) {
+            let (rest, _) = self.rewrite(Formula::Atom(Prop::Eq(left.clone(), simplified)))?;
+            return Ok(Some((
+                ProofTerm::Trans(Box::new(rest), Box::new(ProofTerm::Sym(Box::new(proof)))),
+                conclusion.clone(),
+            )));
+        }
+        Ok(None)
+    }
+
     fn rewrite(&self, conclusion: Formula) -> Result<Step, ReflectError> {
+        if let Some(step) = self.rewrite_conditional_side(&conclusion)? {
+            return Ok(step);
+        }
         if matches!(&conclusion, Formula::Atom(Prop::Eq(t, s)) if t == s) {
             return self.refl(conclusion);
         }
