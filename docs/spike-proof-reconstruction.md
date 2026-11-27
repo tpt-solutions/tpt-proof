@@ -260,3 +260,11 @@ The two remaining lemmas need a certificate with a coefficient of 2 on some prem
 The Farkas certificate search is now a linear program, solved exactly with rationals by the simplex method (phase one, Bland's rule), in `crates/tpt-proof-contract/src/certificate.rs`. The program asks for non-negative coefficients with no variables left in the combination and a constant of 1. The solution is scaled to integers, and the kernel checks it. The search runs before the bounded 0-to-2 enumeration, which remains as a fallback. The linear forms in the module follow the kernel's own rules, so a certificate that the kernel accepts is the one that matters. The module is untrusted.
 
 Across the 35 fixtures, 49 of 53 solver proofs are kernel-checked, and 4 are not. The remaining 4 are 2 `ite` terms from signed division, one equation rewritten to a conjunction, and one indexed rule with a short head.
+
+### Fifteenth slice: bound lemmas, and the limit on symbolic divisors
+
+Z3's `(_ th-lemma arith bound c...) p1 ... pk C` states that the comparisons `p1 ... pk` imply the conclusion `C`. The reflection proves `p1 -> ... -> pk -> C` by refuting the premises together with `not C` (the certificate search of the earlier slices), then applying double negation, and finally applies the implication to the premise proofs. One such lemma, in `quotient_guarded`, is now kernel-checked.
+
+The remaining obstacle is a division by a variable. The `div_guarded` fixture needs `y * (x div y) + (x mod y) = x` with `y` a variable, which is a non-linear identity. Farkas certificates are linear, so no coefficient choice refutes it, and the reflection does not yet multiply facts. Non-linear reasoning is needed for this, which is a larger step.
+
+Across the 35 fixtures, 49 of 53 solver proofs are kernel-checked, and 4 are not: 1 `ite` term from signed division, 1 `ite` term from signed remainder, 1 equation rewritten to a conjunction, and 1 ensures that needs a division by a variable.

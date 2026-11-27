@@ -324,10 +324,18 @@ impl Translator<'_> {
                     && atom(third) == Some("arith")
         );
         let kind = head.get(3).and_then(atom);
-        if !is_th_lemma || !matches!(kind, Some("farkas" | "assign-bounds" | "triangle-eq")) {
+        if !is_th_lemma
+            || !matches!(
+                kind,
+                Some("farkas" | "assign-bounds" | "triangle-eq" | "bound")
+            )
+        {
             return Err(ReflectError::Unsupported(
                 "an indexed rule such as `th-lemma`".to_string(),
             ));
+        }
+        if kind == Some("bound") && args.len() >= 2 {
+            return self.bound_lemma(args);
         }
         if kind == Some("farkas") && args.len() >= 2 {
             return self.farkas_from_premises(head, args);
@@ -361,12 +369,79 @@ impl Translator<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         self.farkas_lemma(Some(&coefficients), clause)
     }
+    /// A `bound` lemma: `((_ th-lemma arith bound c...) p1 ... pk C)`, where each
+    /// `pi` proves a comparison and `C` is the conclusion. The comparisons together
+    /// with the negation of `C` are contradictory, so `p1 -> ... -> pk -> C` is a
+    /// theorem: the Farkas certificate refutes `p1, ..., pk, not C`, and double
+    /// negation gives `C`. The step applies the implication to the premise proofs.
+    fn bound_lemma(&mut self, args: &[Sexp]) -> Result<Step, ReflectError> {
+        let Some((conclusion, premises)) = args.split_last() else {
+            return Err(ReflectError::Malformed(
+                "a bound lemma with no conclusion".to_string(),
+            ));
+        };
+        let conclusion = self.formula(conclusion)?;
+        // The negated conclusion as a comparison, and how to recover `not not C`'s
+        // comparison from the assumption `not C`.
+        let (negated, convert): (Formula, Option<ProofTerm>) = match &conclusion {
+            Formula::Not(inner) => (
+                (**inner).clone(),
+                Some(ProofTerm::Taut(Formula::Imp(
+                    Box::new(Formula::Not(Box::new(Formula::Not(inner.clone())))),
+                    inner.clone(),
+                ))),
+            ),
+            other => (Formula::Not(Box::new(other.clone())), None),
+        };
+        let mut steps = Vec::new();
+        for premise in premises {
+            steps.push(self.step(premise)?);
+        }
+        let mut refutation_premises: Vec<Formula> =
+            steps.iter().map(|(_, formula)| formula.clone()).collect();
+        refutation_premises.push(negated.clone());
+        let refutation = refutation_premises
+            .iter()
+            .rev()
+            .fold(Formula::Const(false), |acc, formula| {
+                Formula::Imp(Box::new(formula.clone()), Box::new(acc))
+            });
+        let props: Vec<Prop> = refutation_premises.iter().map(Formula::encode).collect();
+        let certificate = self.searched_certificate(props, &refutation)?;
+        // Apply the certificate to the premise variables, and to the negated
+        // conclusion, which is the assumption `not C` (converted when C is a negation).
+        let assumption = "#bn".to_string();
+        let mut body = certificate;
+        for index in 0..steps.len() {
+            body = ProofTerm::App(Box::new(body), Box::new(ProofTerm::Var(bound_name(index))));
+        }
+        let negated_proof = match convert {
+            Some(convert) => ProofTerm::App(
+                Box::new(convert),
+                Box::new(ProofTerm::Var(assumption.clone())),
+            ),
+            None => ProofTerm::Var(assumption.clone()),
+        };
+        body = ProofTerm::App(Box::new(body), Box::new(negated_proof));
+        let not_conclusion = Formula::Not(Box::new(conclusion.clone()));
+        let by_contradiction = ProofTerm::Lam(assumption, not_conclusion.encode(), Box::new(body));
+        let double_negation = ProofTerm::Taut(Formula::Imp(
+            Box::new(Formula::Not(Box::new(Formula::Not(Box::new(
+                conclusion.clone(),
+            ))))),
+            Box::new(conclusion.clone()),
+        ));
+        let mut implication = ProofTerm::App(Box::new(double_negation), Box::new(by_contradiction));
+        for (index, (_, formula)) in steps.iter().enumerate().rev() {
+            implication =
+                ProofTerm::Lam(bound_name(index), formula.encode(), Box::new(implication));
+        }
+        let proof = steps.into_iter().fold(implication, |acc, (premise, _)| {
+            ProofTerm::App(Box::new(acc), Box::new(premise))
+        });
+        Ok((proof, conclusion))
+    }
 
-    /// Proves a clause `L_1 or ... or L_n` by a Farkas certificate. Each literal
-    /// must be an integer comparison `t <= s`. The negated literals are the
-    /// premises of [`ProofTerm::Farkas`], which the kernel checks, and the
-    /// tautology `(not L_1 -> ... -> false) -> clause` turns the refutation into
-    /// the clause.
     /// A Farkas step whose premises are proofs of comparisons, and whose
     /// conclusion is `false`: `((_ th-lemma arith farkas c1 ... cn) p1 ... pn
     /// false)`. Each `pi` proves a comparison or its negation. The kernel checks
@@ -689,6 +764,11 @@ impl Translator<'_> {
         ))
     }
 
+    /// Proves a clause `L_1 or ... or L_n` by a Farkas certificate. Each literal
+    /// must be an integer comparison `t <= s`. The negated literals are the
+    /// premises of [`ProofTerm::Farkas`], which the kernel checks, and the
+    /// tautology `(not L_1 -> ... -> false) -> clause` turns the refutation into
+    /// the clause.
     fn farkas_lemma(
         &self,
         coefficients: Option<&[i128]>,
@@ -1929,6 +2009,11 @@ fn euclid_parts(term: &Term) -> Option<(Term, Term, Term)> {
 /// The name of local hypothesis `index`, as a proof variable.
 fn local_name(index: usize) -> String {
     format!("#k{index}")
+}
+
+/// The name of the premise variable `index` of a bound lemma.
+fn bound_name(index: usize) -> String {
+    format!("#b{index}")
 }
 
 #[cfg(test)]
