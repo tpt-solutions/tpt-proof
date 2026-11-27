@@ -256,6 +256,27 @@ pub(crate) fn infer(
         ProofTerm::Farkas(premises, coefficients) => farkas::check(kernel, premises, coefficients),
         ProofTerm::Linear(a, b) => linear::check_implication(kernel, a, b),
         ProofTerm::Identity(t, s) => linear::check_identity(kernel, t, s),
+        ProofTerm::IteCondition(forward, backward, a, b) => {
+            let (condition, other) = match infer(kernel, ctx, forward, deps)? {
+                Prop::Imp(c, c2) => (*c, *c2),
+                found => return Err(KernelError::IteRejected(format!("the forward proof proves {found}, not an implication"))),
+            };
+            match infer(kernel, ctx, backward, deps)? {
+                Prop::Imp(back_from, back_to)
+                    if alpha_eq(&back_from, &other) && alpha_eq(&back_to, &condition) => {}
+                found => {
+                    return Err(KernelError::IteRejected(format!(
+                        "the backward proof proves {found}, not the converse of the forward proof"
+                    )))
+                }
+            }
+            kernel.check_term_in(&Term::Ite(Box::new(condition.clone()), Box::new(a.clone()), Box::new(b.clone())), &ctx.individuals)?;
+            kernel.check_term_in(&Term::Ite(Box::new(other.clone()), Box::new(a.clone()), Box::new(b.clone())), &ctx.individuals)?;
+            Ok(Prop::Eq(
+                Term::Ite(Box::new(condition), Box::new(a.clone()), Box::new(b.clone())),
+                Term::Ite(Box::new(other), Box::new(a.clone()), Box::new(b.clone())),
+            ))
+        }
         ProofTerm::Taut(formula) => {
             taut::check(kernel, formula)?;
             Ok(formula.encode())

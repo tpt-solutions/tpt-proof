@@ -119,6 +119,8 @@ pub enum KernelError {
     FarkasRejected(String),
     /// A linear equivalence is not between two constraints with equal forms.
     LinearRejected(String),
+    /// A conditional-condition step is not built from equivalent conditions.
+    IteRejected(String),
 }
 
 impl fmt::Display for KernelError {
@@ -190,6 +192,9 @@ impl fmt::Display for KernelError {
                 "a tautology has {count} letters, more than the {} the kernel checks",
                 taut::MAX_LETTERS
             ),
+            KernelError::IteRejected(reason) => {
+                write!(f, "the conditional term is rejected: {reason}")
+            }
             KernelError::LinearRejected(reason) => {
                 write!(f, "the linear equivalence is rejected: {reason}")
             }

@@ -374,6 +374,74 @@ impl Translator<'_> {
             .collect::<Result<Vec<_>, _>>()?;
         self.farkas_lemma(Some(&coefficients), clause)
     }
+    /// Proves `Ite(c, a1, b1) = Ite(c, a2, b2)` for a fixed condition `c`. Each
+    /// branch that differs is replaced in turn, by Leibniz substitution into an
+    /// equation whose left side is fixed, and the stages are chained by transitivity.
+    fn ite_branches(
+        &self,
+        steps: &[Step],
+        condition: Prop,
+        a1: &Term,
+        b1: &Term,
+        a2: &Term,
+        b2: &Term,
+    ) -> Result<ProofTerm, ReflectError> {
+        let ite = |then: &Term, otherwise: &Term| {
+            Term::Ite(
+                Box::new(condition.clone()),
+                Box::new(then.clone()),
+                Box::new(otherwise.clone()),
+            )
+        };
+        let find = |from: &Term, to: &Term| {
+            steps.iter().find_map(|(premise, formula)| match formula {
+                Formula::Atom(Prop::Eq(l, r)) if l == from && r == to => Some(premise.clone()),
+                Formula::Atom(Prop::Eq(l, r)) if l == to && r == from => {
+                    Some(ProofTerm::Sym(Box::new(premise.clone())))
+                }
+                _ => None,
+            })
+        };
+        let left = ite(a1, b1);
+        let mut rhs = left.clone();
+        let mut proof: Option<ProofTerm> = None;
+        // Each stage: (is the then-branch, old branch, new branch, other branch).
+        let mut stages: Vec<(bool, &Term, &Term, &Term)> = Vec::new();
+        if a1 != a2 {
+            stages.push((true, a1, a2, b1));
+        }
+        if b1 != b2 {
+            stages.push((false, b1, b2, a2));
+        }
+        for (then_branch, from, to, other) in stages {
+            let equation = find(from, to).ok_or_else(|| {
+                ReflectError::Malformed("no premise equates a conditional branch".to_string())
+            })?;
+            let motive_term = if then_branch {
+                ite(&Term::var(MOTIVE), other)
+            } else {
+                ite(other, &Term::var(MOTIVE))
+            };
+            let motive = Prop::Eq(rhs.clone(), motive_term);
+            let stage = ProofTerm::Leibniz(
+                MOTIVE.to_string(),
+                motive,
+                Box::new(equation),
+                Box::new(ProofTerm::Refl(rhs.clone())),
+            );
+            proof = Some(match proof {
+                None => stage,
+                Some(previous) => ProofTerm::Trans(Box::new(previous), Box::new(stage)),
+            });
+            rhs = if then_branch {
+                ite(to, other)
+            } else {
+                ite(other, to)
+            };
+        }
+        Ok(proof.unwrap_or_else(|| ProofTerm::Refl(left)))
+    }
+
     /// A `bound` lemma: `((_ th-lemma arith bound c...) p1 ... pk C)`, where each
     /// `pi` proves a comparison and `C` is the conclusion. The comparisons together
     /// with the negation of `C` are contradictory, so `p1 -> ... -> pk -> C` is a
@@ -1376,70 +1444,59 @@ impl Translator<'_> {
                 }
                 _ => consequence(steps, conclusion),
             },
-            // Equal conditional terms with the same condition: each branch that
-            // differs is replaced in turn, by Leibniz substitution into an equation
-            // whose left side is fixed. The stages are then chained by transitivity.
-            Formula::Atom(Prop::Eq(Term::Ite(c1, a1, b1), Term::Ite(c2, a2, b2))) if c1 == c2 => {
-                let condition = c1.clone();
-                let ite = |then: &Term, otherwise: &Term| {
-                    Term::Ite(
-                        condition.clone(),
-                        Box::new(then.clone()),
-                        Box::new(otherwise.clone()),
-                    )
-                };
-                let find = |from: &Term, to: &Term| {
-                    steps.iter().find_map(|(premise, formula)| match formula {
-                        Formula::Atom(Prop::Eq(l, r)) if l == from && r == to => {
-                            Some(premise.clone())
-                        }
-                        Formula::Atom(Prop::Eq(l, r)) if l == to && r == from => {
-                            Some(ProofTerm::Sym(Box::new(premise.clone())))
-                        }
-                        _ => None,
-                    })
-                };
-                let left = ite(a1, b1);
-                let mut rhs = left.clone();
-                let mut proof: Option<ProofTerm> = None;
-                // Each stage: (is the then-branch, old branch, new branch, other branch).
-                let mut stages: Vec<(bool, &Term, &Term, &Term)> = Vec::new();
-                if a1 != a2 {
-                    stages.push((true, a1, a2, b1));
-                }
-                if b1 != b2 {
-                    stages.push((false, b1, b2, a2));
-                }
-                for (then_branch, from, to, other) in stages {
-                    let equation = find(from, to).ok_or_else(|| {
-                        ReflectError::Malformed(
-                            "no premise equates a conditional branch".to_string(),
-                        )
-                    })?;
-                    let motive_term = if then_branch {
-                        ite(&Term::var(MOTIVE), other)
+            // Equal conditional terms. With the same condition, each branch that
+            // differs is replaced in turn. With different conditions, the conditions
+            // are first made equal by the `ite` condition rule, from the premise that
+            // they are equivalent.
+            Formula::Atom(Prop::Eq(Term::Ite(c1, a1, b1), Term::Ite(c2, a2, b2))) => {
+                let proof = if c1 == c2 {
+                    self.ite_branches(&steps, (**c1).clone(), a1, b1, a2, b2)?
+                } else {
+                    let (proof, l, r) = steps
+                        .iter()
+                        .find_map(|(proof, formula)| match formula {
+                            Formula::Iff(l, r)
+                                if (**l == Formula::Atom((**c1).clone())
+                                    && **r == Formula::Atom((**c2).clone()))
+                                    || (**l == Formula::Atom((**c2).clone())
+                                        && **r == Formula::Atom((**c1).clone())) =>
+                            {
+                                Some((proof.clone(), (**l).clone(), (**r).clone()))
+                            }
+                            _ => None,
+                        })
+                        .ok_or_else(|| {
+                            ReflectError::Unsupported(
+                                "conditional terms with different conditions, and no premise that equates them"
+                                    .to_string(),
+                            )
+                        })?;
+                    // `Iff(l, r)` as two implications, by tautologies over the letters.
+                    let iff = Formula::Iff(Box::new(l.clone()), Box::new(r.clone()));
+                    let forward_taut = ProofTerm::Taut(Formula::Imp(
+                        Box::new(iff.clone()),
+                        Box::new(Formula::Imp(Box::new(l.clone()), Box::new(r.clone()))),
+                    ));
+                    let backward_taut = ProofTerm::Taut(Formula::Imp(
+                        Box::new(iff),
+                        Box::new(Formula::Imp(Box::new(r), Box::new(l.clone()))),
+                    ));
+                    let (fwd, bwd) = if l == Formula::Atom((**c1).clone()) {
+                        (forward_taut, backward_taut)
                     } else {
-                        ite(other, &Term::var(MOTIVE))
+                        (backward_taut, forward_taut)
                     };
-                    let motive = Prop::Eq(rhs.clone(), motive_term);
-                    let stage = ProofTerm::Leibniz(
-                        MOTIVE.to_string(),
-                        motive,
-                        Box::new(equation),
-                        Box::new(ProofTerm::Refl(rhs.clone())),
+                    let forward = ProofTerm::App(Box::new(fwd), Box::new(proof.clone()));
+                    let backward = ProofTerm::App(Box::new(bwd), Box::new(proof));
+                    let condition_step = ProofTerm::IteCondition(
+                        Box::new(forward),
+                        Box::new(backward),
+                        (**a1).clone(),
+                        (**b1).clone(),
                     );
-                    proof = Some(match proof {
-                        None => stage,
-                        Some(previous) => ProofTerm::Trans(Box::new(previous), Box::new(stage)),
-                    });
-                    rhs = if then_branch {
-                        ite(to, other)
-                    } else {
-                        ite(other, to)
-                    };
-                }
-                let proof = proof.unwrap_or_else(|| ProofTerm::Refl(left.clone()));
-                let _ = (a2, b2);
+                    let branches = self.ite_branches(&steps, (**c2).clone(), a1, b1, a2, b2)?;
+                    ProofTerm::Trans(Box::new(condition_step), Box::new(branches))
+                };
                 Ok((proof, conclusion))
             }
             Formula::Atom(Prop::Eq(Term::Fun(f, from), Term::Fun(g, to)))

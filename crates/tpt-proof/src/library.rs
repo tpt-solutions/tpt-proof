@@ -374,6 +374,13 @@ fn proof_text(term: &ProofTerm) -> String {
         }
         ProofTerm::Linear(a, b) => format!("(linear {} {})", prop_text(a), prop_text(b)),
         ProofTerm::Identity(t, s) => format!("(identity {} {})", term_text(t), term_text(s)),
+        ProofTerm::IteCondition(forward, backward, a, b) => format!(
+            "(itecond {} {} {} {})",
+            proof_text(forward),
+            proof_text(backward),
+            term_text(a),
+            term_text(b)
+        ),
     }
 }
 
@@ -745,6 +752,15 @@ fn decode_proof(sexp: &Sexp) -> Result<ProofTerm, LibraryError> {
         "taut" => {
             fixed(items, 1, head)?;
             Ok(ProofTerm::Taut(decode_formula(&items[1])?))
+        }
+        "itecond" => {
+            fixed(items, 4, head)?;
+            Ok(ProofTerm::IteCondition(
+                Box::new(decode_proof(&items[1])?),
+                Box::new(decode_proof(&items[2])?),
+                decode_term(&items[3])?,
+                decode_term(&items[4])?,
+            ))
         }
         "identity" => {
             fixed(items, 2, head)?;

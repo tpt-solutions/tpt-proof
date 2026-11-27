@@ -238,7 +238,7 @@ fn lean_proof(kernel: &Kernel, earlier: &[&str], term: &ProofTerm) -> Result<Str
             ))
         }
         ProofTerm::Taut(_) => return Err(ExportError::UnsupportedRule("tautology".to_string())),
-        ProofTerm::Farkas(..) | ProofTerm::Linear(..) | ProofTerm::Identity(..) => {
+        ProofTerm::Farkas(..) | ProofTerm::Linear(..) | ProofTerm::Identity(..) | ProofTerm::IteCondition(..) => {
             return Err(ExportError::UnsupportedRule(
                 "linear integer certificate".to_string(),
             ))

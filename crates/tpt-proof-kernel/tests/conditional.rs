@@ -93,3 +93,60 @@ fn a_negative_divisor_is_evaluated_euclidean_as_in_smt_lib() {
         )
         .expect("the remainder");
 }
+
+fn taut_imp(a: Prop, b: Prop) -> ProofTerm {
+    ProofTerm::Taut(Formula::Imp(
+        Box::new(Formula::Atom(a)),
+        Box::new(Formula::Atom(b)),
+    ))
+}
+
+#[test]
+fn equivalent_conditions_give_equal_conditionals() {
+    // 0 < 1 and 2 < 3 are both true, so the conditionals agree.
+    let kernel = Kernel::new();
+    let p = lt(c("0"), c("1"));
+    let p2 = lt(c("2"), c("3"));
+    let rule = ProofTerm::IteCondition(
+        Box::new(taut_imp(p.clone(), p2.clone())),
+        Box::new(taut_imp(p2.clone(), p.clone())),
+        c("4"),
+        c("5"),
+    );
+    let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
+    kernel.check_proof(&rule, &claim).expect("equivalent conditions");
+}
+
+#[test]
+fn a_backward_proof_that_is_not_the_converse_is_refused() {
+    let kernel = Kernel::new();
+    let p = lt(c("0"), c("1"));
+    let p2 = lt(c("2"), c("3"));
+    let rule = ProofTerm::IteCondition(
+        Box::new(taut_imp(p.clone(), p2.clone())),
+        Box::new(taut_imp(p.clone(), p.clone())),
+        c("4"),
+        c("5"),
+    );
+    let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
+    assert!(matches!(
+        kernel.check_proof(&rule, &claim),
+        Err(KernelError::IteRejected(_))
+    ));
+}
+
+#[test]
+fn a_false_equivalence_is_refused_by_its_proofs() {
+    // 0 < 1 (true) and 1 < 0 (false) are not equivalent: the forward proof fails.
+    let kernel = Kernel::new();
+    let p = lt(c("0"), c("1"));
+    let p2 = lt(c("1"), c("0"));
+    let rule = ProofTerm::IteCondition(
+        Box::new(taut_imp(p.clone(), p2.clone())),
+        Box::new(taut_imp(p2.clone(), p.clone())),
+        c("4"),
+        c("5"),
+    );
+    let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
+    assert!(kernel.check_proof(&rule, &claim).is_err());
+}

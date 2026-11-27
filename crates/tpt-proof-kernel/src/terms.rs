@@ -498,6 +498,11 @@ pub enum ProofTerm {
     /// of `t - s`, which makes them equivalent over the integers. See the
     /// `linear` module for the rule and its trust.
     Linear(Prop, Prop),
+    /// A conditional term whose condition is replaced by an equivalent one: from a
+    /// proof of `c -> c2` and a proof of `c2 -> c`, proves `Ite(c, a, b) = Ite(c2, a,
+    /// b)`. Under every valuation the two conditions agree, so the conditionals are
+    /// equal. See the `ite` rule in `kernel/AUDIT.md`.
+    IteCondition(Box<ProofTerm>, Box<ProofTerm>, Term, Term),
     /// Proves `t = s` for two integer terms with the same linear form. See the
     /// `linear` module.
     Identity(Term, Term),

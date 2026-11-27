@@ -102,6 +102,8 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 
 - 2026: added conditional terms `Term::Ite(cond, a, b)`, where the condition is a proposition. The checker requires a well-formed condition and branches of one sort. Ground conditionals are evaluated by the built-in arithmetic. The Lean export and the library format handle them (the export rejects them). Two meanings were extended with the same change: `div` and `mod` now evaluate for negative divisors, as SMT-LIB defines them (`0 <= r < |b|`), and a ground proposition built from `->` is evaluated classically in the tautology rule. Tests: `tests/conditional.rs`. This is a trusted-base change, reviewed as a kernel change.
 
+- 2026: added the proof rule `ProofTerm::IteCondition`. From a proof of `c -> c2` and a proof of `c2 -> c`, it proves `Ite(c, a, b) = Ite(c2, a, b)`: under every valuation the two conditions agree, so the conditionals are equal. It is a primitive rule, checked by the proof checker, which requires both implications to be proved and the terms to be well formed. Tests: `tests/conditional.rs`. Trusted-base change, reviewed as a kernel change.
+
 ## Rules for changes
 
 - Zero dependencies (enforced in CI).
