@@ -32,4 +32,4 @@ Options:
 
 Recommendation: **A now, B later**, only if a fixture or a user needs non-linear division. The remaining proof obligation is genuinely non-linear, and option B is a real kernel addition that should be justified by a need.
 
-Decision needed: confirm A for now, or ask for B to be scoped in detail.
+Decision (approved): A for now. Division by a variable stays unsupported, and proof mode reports it as unchecked. B is not scoped; it needs a concrete need first.
