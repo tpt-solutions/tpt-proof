@@ -101,6 +101,32 @@ fn standard() -> Vec<(&'static str, Prop, &'static str)> {
             ),
             "The order on the integers is antisymmetric: if x <= y and y <= x then x = y. Each side is an integer, so the equation holds in both directions of the order.",
         ),
+        (
+            "ite_true",
+            for_all_int(
+                &["x", "y"],
+                Prop::Eq(
+                    Term::Ite(
+                        Box::new(Prop::imp(falsum(), falsum())),
+                        Box::new(x()),
+                        Box::new(y()),
+                    ),
+                    x(),
+                ),
+            ),
+            "A conditional whose condition is true, the constant true, is its then-branch. This is the meaning of the conditional term.",
+        ),
+        (
+            "ite_false",
+            for_all_int(
+                &["x", "y"],
+                Prop::Eq(
+                    Term::Ite(Box::new(falsum()), Box::new(x()), Box::new(y())),
+                    y(),
+                ),
+            ),
+            "A conditional whose condition is false, the constant false, is its else-branch. This is the meaning of the conditional term.",
+        ),
     ]
 }
 

@@ -150,3 +150,32 @@ fn a_false_equivalence_is_refused_by_its_proofs() {
     let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
     assert!(kernel.check_proof(&rule, &claim).is_err());
 }
+
+#[test]
+fn the_conditional_laws_apply_to_constant_conditions() {
+    use tpt_proof_kernel::axioms::declare_standard;
+    let mut kernel = Kernel::new();
+    declare_standard(&mut kernel).expect("standard axioms");
+    let truth = Prop::imp(Prop::atom("false"), Prop::atom("false"));
+    let instance = |axiom: &str, a: &str, b: &str| {
+        ProofTerm::IndApp(
+            Box::new(ProofTerm::IndApp(
+                Box::new(ProofTerm::Axiom(axiom.to_string())),
+                c(a),
+            )),
+            c(b),
+        )
+    };
+    let on_true = Prop::Eq(ite(truth, c("4"), c("5")), c("4"));
+    kernel
+        .check_proof(&instance("ite_true", "4", "5"), &on_true)
+        .expect("the true branch");
+    let on_false = Prop::Eq(ite(Prop::atom("false"), c("4"), c("5")), c("5"));
+    kernel
+        .check_proof(&instance("ite_false", "4", "5"), &on_false)
+        .expect("the else branch");
+    // The laws do not swap the branches.
+    assert!(kernel
+        .check_proof(&instance("ite_false", "4", "5"), &on_true)
+        .is_err());
+}

@@ -147,7 +147,7 @@ fn standard_axioms_are_declared_once_and_are_idempotent() {
     let mut kernel = Kernel::new();
     declare_standard(&mut kernel).unwrap();
     declare_standard(&mut kernel).unwrap();
-    assert_eq!(kernel.axioms().count(), 9);
+    assert_eq!(kernel.axioms().count(), 11);
 }
 
 #[test]

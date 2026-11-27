@@ -37,7 +37,7 @@ The kernel source lives in [crates/tpt-proof-kernel](../crates/tpt-proof-kernel)
 
 ## Trusted axioms
 
-Built-in: none. `Kernel::new` declares the sort `Int` and the operations `+`, `-`, `*`, `neg` and the predicates `<=`, `<` with their usual meaning, but it declares no axioms. Implication, quantifiers, and equality are primitive rules. `axioms::declare_standard` adds the nine integer axioms below; a caller opts in.
+Built-in: none. `Kernel::new` declares the sort `Int` and the operations `+`, `-`, `*`, `neg` and the predicates `<=`, `<` with their usual meaning, but it declares no axioms. Implication, quantifiers, and equality are primitive rules. `axioms::declare_standard` adds the eleven integer axioms below; a caller opts in.
 
 Trusted primitive: the tautology rule (`ProofTerm::Taut`). It accepts a formula when a truth table over its letters shows it true, and it evaluates ground atoms with the built-in arithmetic. It makes the kernel classical: `not not p -> p` is accepted with no excluded-middle axiom. Its soundness depends on two things, which are also trusted: the encodings in `formula.rs` must be classically equivalent to the connectives they stand for (`not p` as `p -> false`, `and` and `or` as second-order encodings, `iff` as two implications), and the built-in evaluation in `arith.rs` must match the usual integer semantics. Numerals must be canonical (no leading zeros), and an overflow in `i128` makes an atom a letter, which can only make the rule reject more.
 
@@ -51,7 +51,8 @@ The integer axioms, each a closed proposition over `Int`, each true over the int
 - `add_cancel_left_bwd`: `x = y -> z + x = z + y`.
 - `add_comm`: `x + y = y + x`.
 - `add_zero`: `x + 0 = x`.
-- `le_antisymm`: `x <= y -> y <= x -> x = y`. The order on the integers is antisymmetric. Added in a dedicated change, after review of its justification (see the change log).
+- `le_antisymm`: `x <= y -> y <= x -> x = y`.
+- `ite_true`, `ite_false`: `Ite(true, x, y) = x` and `Ite(false, x, y) = y`, the meaning of a conditional term. Added in a dedicated change, reviewed like `le_antisymm`. The order on the integers is antisymmetric. Added in a dedicated change, after review of its justification (see the change log).
 
 These were chosen for the proofs that Z3 produces for the VCs in the reconstruction tests. They do not cover Z3's arithmetic normalization (for example `x - y` as `x + (-1) * y`) or its Farkas certificates (`th-lemma`), which are not reconstructed.
 
@@ -103,6 +104,8 @@ Primitive rules added since the initial review: `Leibniz` (equality substitution
 - 2026: added conditional terms `Term::Ite(cond, a, b)`, where the condition is a proposition. The checker requires a well-formed condition and branches of one sort. Ground conditionals are evaluated by the built-in arithmetic. The Lean export and the library format handle them (the export rejects them). Two meanings were extended with the same change: `div` and `mod` now evaluate for negative divisors, as SMT-LIB defines them (`0 <= r < |b|`), and a ground proposition built from `->` is evaluated classically in the tautology rule. Tests: `tests/conditional.rs`. This is a trusted-base change, reviewed as a kernel change.
 
 - 2026: added the proof rule `ProofTerm::IteCondition`. From a proof of `c -> c2` and a proof of `c2 -> c`, it proves `Ite(c, a, b) = Ite(c2, a, b)`: under every valuation the two conditions agree, so the conditionals are equal. It is a primitive rule, checked by the proof checker, which requires both implications to be proved and the terms to be well formed. Tests: `tests/conditional.rs`. Trusted-base change, reviewed as a kernel change.
+
+- 2026: added the axioms `ite_true` (`Ite(true, x, y) = x`) and `ite_false` (`Ite(false, x, y) = y`) to `axioms::declare_standard`. They state the meaning of a conditional term with a constant condition. Closed over integer terms. Approved by the maintainer for a dedicated review, as for `le_antisymm`.
 
 ## Rules for changes
 
