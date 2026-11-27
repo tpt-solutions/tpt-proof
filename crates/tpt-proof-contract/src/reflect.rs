@@ -1456,10 +1456,8 @@ impl Translator<'_> {
                         .iter()
                         .find_map(|(proof, formula)| match formula {
                             Formula::Iff(l, r)
-                                if (**l == Formula::Atom((**c1).clone())
-                                    && **r == Formula::Atom((**c2).clone()))
-                                    || (**l == Formula::Atom((**c2).clone())
-                                        && **r == Formula::Atom((**c1).clone())) =>
+                                if (l.encode() == **c1 && r.encode() == **c2)
+                                    || (l.encode() == **c2 && r.encode() == **c1) =>
                             {
                                 Some((proof.clone(), (**l).clone(), (**r).clone()))
                             }
@@ -1481,7 +1479,7 @@ impl Translator<'_> {
                         Box::new(iff),
                         Box::new(Formula::Imp(Box::new(r), Box::new(l.clone()))),
                     ));
-                    let (fwd, bwd) = if l == Formula::Atom((**c1).clone()) {
+                    let (fwd, bwd) = if l.encode() == **c1 {
                         (forward_taut, backward_taut)
                     } else {
                         (backward_taut, forward_taut)
