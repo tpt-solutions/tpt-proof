@@ -439,7 +439,7 @@ impl Translator<'_> {
                 ite(other, to)
             };
         }
-        Ok(proof.unwrap_or_else(|| ProofTerm::Refl(left)))
+        Ok(proof.unwrap_or(ProofTerm::Refl(left)))
     }
 
     /// A `bound` lemma: `((_ th-lemma arith bound c...) p1 ... pk C)`, where each
