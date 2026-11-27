@@ -771,6 +771,22 @@ impl Translator<'_> {
         extended.extend(premises);
         let count = extended.len();
         let claim = refutation.encode();
+        // An exact linear-programming search first. It finds a certificate of any
+        // size with any coefficients, when one exists; the kernel checks it.
+        let forms: Option<Vec<crate::certificate::Form>> = extended
+            .iter()
+            .map(crate::certificate::premise_form)
+            .collect();
+        if let Some(coefficients) = forms.and_then(|forms| crate::certificate::certificate(&forms))
+        {
+            let certificate = facts.iter().fold(
+                ProofTerm::Farkas(extended.clone(), coefficients),
+                |acc, (_, fact)| ProofTerm::App(Box::new(acc), Box::new(fact.clone())),
+            );
+            if self.kernel.check_proof(&certificate, &claim).is_ok() {
+                return Ok(certificate);
+            }
+        }
         // Coefficients 0, 1 and 2 for at most four premises, else 0 and 1.
         let top: u64 = if count <= 4 { 2 } else { 1 };
         let total = (top + 1).pow(count as u32);

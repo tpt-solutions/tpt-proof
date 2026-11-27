@@ -13,6 +13,7 @@
 #![forbid(unsafe_code)]
 
 pub mod cache;
+pub mod certificate;
 pub mod reflect;
 pub mod smt;
 pub mod spec;

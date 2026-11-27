@@ -21,6 +21,7 @@ and nothing is published yet.
 
 ### Added
 
+- Reflection: Farkas certificates are found by an exact simplex over rationals (`certificate.rs`), so any size of certificate is found when one exists. 49 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Reflection: local hypotheses in case splits (`hypothesis` and `lemma` steps), rational Farkas coefficients, and remainder facts in the certificate search. 47 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Kernel: the integer axiom `le_antisymm` (approved for a dedicated review, recorded in `kernel/AUDIT.md`). Reflection reconstructs both forms of the `triangle-eq` lemma. 46 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Reflection: Farkas steps whose premises are proofs are reconstructed, with the premise proofs applied to the certificate. 44 of 53 solver proofs across the 35 fixtures are kernel-checked.

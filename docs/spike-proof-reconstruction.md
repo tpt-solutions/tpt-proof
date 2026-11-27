@@ -254,3 +254,9 @@ Across the 35 fixtures, 47 of 53 solver proofs are kernel-checked, and 6 are not
 The division facts now include the two inequalities that the Euclidean identity gives for each remainder: `t <= t mod-expression` and its converse. Each is the identity moved by Leibniz substitution into the closed comparison `t <= t`, and each is checked by the kernel before it is used. The inequalities are accepted; the count stays at 47 of 53.
 
 The two remaining lemmas need a certificate with a coefficient of 2 on some premises, among nine premises (with the division facts). The search covers 0 to 2 only for up to four premises, and 0 or 1 beyond that: a search over 0 to 2 for nine premises is 3^9 checks, which takes too long. The certificate is a linear program over non-negative rationals. The next step is an exact simplex over the coefficients, which finds a certificate of any size. It is not built yet.
+
+### Fourteenth slice: exact certificate search by simplex
+
+The Farkas certificate search is now a linear program, solved exactly with rationals by the simplex method (phase one, Bland's rule), in `crates/tpt-proof-contract/src/certificate.rs`. The program asks for non-negative coefficients with no variables left in the combination and a constant of 1. The solution is scaled to integers, and the kernel checks it. The search runs before the bounded 0-to-2 enumeration, which remains as a fallback. The linear forms in the module follow the kernel's own rules, so a certificate that the kernel accepts is the one that matters. The module is untrusted.
+
+Across the 35 fixtures, 49 of 53 solver proofs are kernel-checked, and 4 are not. The remaining 4 are 2 `ite` terms from signed division, one equation rewritten to a conjunction, and one indexed rule with a short head.
