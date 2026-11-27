@@ -268,3 +268,9 @@ Z3's `(_ th-lemma arith bound c...) p1 ... pk C` states that the comparisons `p1
 The remaining obstacle is a division by a variable. The `div_guarded` fixture needs `y * (x div y) + (x mod y) = x` with `y` a variable, which is a non-linear identity. Farkas certificates are linear, so no coefficient choice refutes it, and the reflection does not yet multiply facts. Non-linear reasoning is needed for this, which is a larger step.
 
 Across the 35 fixtures, 49 of 53 solver proofs are kernel-checked, and 4 are not: 1 `ite` term from signed division, 1 `ite` term from signed remainder, 1 equation rewritten to a conjunction, and 1 ensures that needs a division by a variable.
+
+### Sixteenth slice: conditional terms in the kernel
+
+The kernel now has `Term::Ite` (see `kernel/AUDIT.md`), which is the option the design note recommends. The reflection translates Z3's `ite` terms into it. A congruence over conditionals with the same condition is proved by Leibniz substitution, one branch at a time. Ground conditionals and ground equations are decided by the tautology rule, which also evaluates `div` and `mod` for negative divisors.
+
+The count of kernel-checked solver proofs stays at 49 of 53. The `ite` terms no longer block their assertions, but the remaining ones still differ in condition: Z3 rewrites the condition of a signed division, and a rewrite of a condition needs propositional congruence, which is not built. That is the next obstacle.

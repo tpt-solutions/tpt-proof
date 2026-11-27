@@ -21,6 +21,7 @@ and nothing is published yet.
 
 ### Added
 
+- Kernel: conditional terms (`Term::Ite`), approved as option A of the design note. Reflection translates Z3's `ite`, and ground equations are decided by the tautology rule. 49 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Reflection: bound lemmas (`th-lemma arith bound`) are reconstructed from the Farkas certificates. The remaining obstacle is a division by a variable, which needs non-linear reasoning.
 - Reflection: Farkas certificates are found by an exact simplex over rationals (`certificate.rs`), so any size of certificate is found when one exists. 49 of 53 solver proofs across the 35 fixtures are kernel-checked.
 - Reflection: local hypotheses in case splits (`hypothesis` and `lemma` steps), rational Farkas coefficients, and remainder facts in the certificate search. 47 of 53 solver proofs across the 35 fixtures are kernel-checked.

@@ -142,6 +142,7 @@ fn quote(prefix: &str, name: &str) -> Result<String, ExportError> {
 fn lean_term(term: &Term) -> Result<String, ExportError> {
     Ok(match term {
         Term::Var(name) => quote("var", name)?,
+        Term::Ite(..) => return Err(ExportError::UnsupportedRule("conditional term".to_string())),
         Term::Fun(symbol, args) if args.is_empty() => quote("fun", symbol)?,
         Term::Fun(symbol, args) => {
             let args = args.iter().map(lean_term).collect::<Result<Vec<_>, _>>()?;

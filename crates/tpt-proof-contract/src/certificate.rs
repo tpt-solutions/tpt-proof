@@ -69,6 +69,7 @@ impl Form {
 pub fn linear(term: &Term) -> Option<Form> {
     match term {
         Term::Var(_) => None,
+        Term::Ite(..) => Some(Form::variable(&format!("{term:?}"))),
         Term::Fun(symbol, args) => match (symbol.as_str(), args.as_slice()) {
             (numeral, []) if is_numeral(numeral) => Some(Form::constant(numeral.parse().ok()?)),
             (name, []) => Some(Form::variable(name)),

@@ -796,6 +796,9 @@ fn replace_term(term: &Term, target: &Term, var: &str) -> (Term, bool) {
         return (Term::var(var), true);
     }
     match term {
+        // A conditional term is left as it is: rewriting inside it would need its
+        // condition to be rewritten too. The kernel checks whatever is built.
+        Term::Ite(..) => (term.clone(), false),
         Term::Var(_) => (term.clone(), false),
         Term::Fun(symbol, args) => {
             let mut found = false;
@@ -817,6 +820,13 @@ fn term_vars(term: &Term) -> Vec<String> {
     match term {
         Term::Var(name) => vec![name.clone()],
         Term::Fun(_, args) => args.iter().flat_map(term_vars).collect(),
+        Term::Ite(cond, then, otherwise) => {
+            let mut out = Vec::new();
+            names_in(cond, &mut out);
+            out.extend(term_vars(then));
+            out.extend(term_vars(otherwise));
+            out
+        }
     }
 }
 

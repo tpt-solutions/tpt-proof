@@ -282,6 +282,12 @@ fn prop_text(prop: &Prop) -> String {
 fn term_text(term: &Term) -> String {
     match term {
         Term::Var(name) => format!("(var {})", quote(name)),
+        Term::Ite(cond, then, otherwise) => format!(
+            "(ite {} {} {})",
+            prop_text(cond),
+            term_text(then),
+            term_text(otherwise)
+        ),
         Term::Fun(symbol, args) => {
             let args: Vec<String> = args.iter().map(term_text).collect();
             format!("(fun {} {})", quote(symbol), args.join(" "))
@@ -581,6 +587,14 @@ fn decode_term(sexp: &Sexp) -> Result<Term, LibraryError> {
                 .map(decode_term)
                 .collect::<Result<Vec<_>, _>>()?;
             Ok(Term::app(&text_at(items, 1)?, args))
+        }
+        "ite" => {
+            fixed(items, 3, head)?;
+            Ok(Term::Ite(
+                Box::new(decode_prop(&items[1])?),
+                Box::new(decode_term(&items[2])?),
+                Box::new(decode_term(&items[3])?),
+            ))
         }
         other => Err(malformed(&format!("unknown term `{other}`"))),
     }

@@ -235,6 +235,11 @@ impl Scope {
             Expr::Div(a, b) => Term::app("div", vec![self.term(a)?, self.term(b)?]),
             Expr::Rem(a, b) => Term::app("mod", vec![self.term(a)?, self.term(b)?]),
             Expr::Select(a, i) => Term::app("select", vec![self.term(a)?, self.term(i)?]),
+            Expr::Ite(c, a, b) => Term::Ite(
+                Box::new(self.formula(c)?.encode()),
+                Box::new(self.term(a)?),
+                Box::new(self.term(b)?),
+            ),
             Expr::Store(a, i, v) => {
                 Term::app("store", vec![self.term(a)?, self.term(i)?, self.term(v)?])
             }
@@ -1075,6 +1080,7 @@ impl Translator<'_> {
             Sexp::List(items) => matches!(
                 items.first(),
                 Some(Sexp::Atom(head)) if matches!(head.as_str(), "+" | "-" | "*" | "div" | "mod" | "select")
+                    || (head == "ite" && items.get(2).is_some_and(|then| self.is_int(then)))
             ),
         }
     }
@@ -1092,6 +1098,13 @@ impl Translator<'_> {
             Sexp::List(items) => match items.split_first() {
                 Some((Sexp::Atom(head), [a])) if head == "-" => {
                     Ok(Term::app("neg", vec![self.term(a)?]))
+                }
+                Some((Sexp::Atom(head), [condition, then, otherwise])) if head == "ite" => {
+                    Ok(Term::Ite(
+                        Box::new(self.formula(condition)?.encode()),
+                        Box::new(self.term(then)?),
+                        Box::new(self.term(otherwise)?),
+                    ))
                 }
                 Some((Sexp::Atom(head), [array, index])) if head == "select" => Ok(Term::app(
                     "select",
@@ -1350,6 +1363,10 @@ impl Translator<'_> {
     /// one at a time with [`ProofTerm::Leibniz`]; an integer function is
     /// congruent with [`ProofTerm::Cong`].
     fn monotonicity(&self, steps: Vec<Step>, conclusion: Formula) -> Result<Step, ReflectError> {
+        // A ground equation or equivalence is decided by the tautology rule.
+        if self.proves_by_tautology(&conclusion) {
+            return Ok((ProofTerm::Taut(conclusion.clone()), conclusion));
+        }
         match &conclusion {
             Formula::Iff(from, to) => match (int_atom(from), int_atom(to)) {
                 (Some((symbol, from_args)), Some((to_symbol, to_args)))
@@ -1359,6 +1376,72 @@ impl Translator<'_> {
                 }
                 _ => consequence(steps, conclusion),
             },
+            // Equal conditional terms with the same condition: each branch that
+            // differs is replaced in turn, by Leibniz substitution into an equation
+            // whose left side is fixed. The stages are then chained by transitivity.
+            Formula::Atom(Prop::Eq(Term::Ite(c1, a1, b1), Term::Ite(c2, a2, b2))) if c1 == c2 => {
+                let condition = c1.clone();
+                let ite = |then: &Term, otherwise: &Term| {
+                    Term::Ite(
+                        condition.clone(),
+                        Box::new(then.clone()),
+                        Box::new(otherwise.clone()),
+                    )
+                };
+                let find = |from: &Term, to: &Term| {
+                    steps.iter().find_map(|(premise, formula)| match formula {
+                        Formula::Atom(Prop::Eq(l, r)) if l == from && r == to => {
+                            Some(premise.clone())
+                        }
+                        Formula::Atom(Prop::Eq(l, r)) if l == to && r == from => {
+                            Some(ProofTerm::Sym(Box::new(premise.clone())))
+                        }
+                        _ => None,
+                    })
+                };
+                let left = ite(a1, b1);
+                let mut rhs = left.clone();
+                let mut proof: Option<ProofTerm> = None;
+                // Each stage: (is the then-branch, old branch, new branch, other branch).
+                let mut stages: Vec<(bool, &Term, &Term, &Term)> = Vec::new();
+                if a1 != a2 {
+                    stages.push((true, a1, a2, b1));
+                }
+                if b1 != b2 {
+                    stages.push((false, b1, b2, a2));
+                }
+                for (then_branch, from, to, other) in stages {
+                    let equation = find(from, to).ok_or_else(|| {
+                        ReflectError::Malformed(
+                            "no premise equates a conditional branch".to_string(),
+                        )
+                    })?;
+                    let motive_term = if then_branch {
+                        ite(&Term::var(MOTIVE), other)
+                    } else {
+                        ite(other, &Term::var(MOTIVE))
+                    };
+                    let motive = Prop::Eq(rhs.clone(), motive_term);
+                    let stage = ProofTerm::Leibniz(
+                        MOTIVE.to_string(),
+                        motive,
+                        Box::new(equation),
+                        Box::new(ProofTerm::Refl(rhs.clone())),
+                    );
+                    proof = Some(match proof {
+                        None => stage,
+                        Some(previous) => ProofTerm::Trans(Box::new(previous), Box::new(stage)),
+                    });
+                    rhs = if then_branch {
+                        ite(to, other)
+                    } else {
+                        ite(other, to)
+                    };
+                }
+                let proof = proof.unwrap_or_else(|| ProofTerm::Refl(left.clone()));
+                let _ = (a2, b2);
+                Ok((proof, conclusion))
+            }
             Formula::Atom(Prop::Eq(Term::Fun(f, from), Term::Fun(g, to)))
                 if f == g && from.len() == to.len() =>
             {
