@@ -248,3 +248,9 @@ Z3 discharges some case splits with `(hypothesis F)` and `(lemma P c)` steps. A 
 Two smaller changes: Z3 may print rational Farkas coefficients (`1/2`), which are then searched rather than read; and the certificate search includes the division facts about the remainders the premises mention, so a bound such as `m <= 1` can be refuted by `m < 2`. The search covers coefficients 0 to 2 for at most four premises, and 0 or 1 beyond that.
 
 Across the 35 fixtures, 47 of 53 solver proofs are kernel-checked, and 6 are not. The remaining 6 are 2 theory lemmas whose refutation needs more than the 0/1 search covers (in the binary search, the nine-premise lemmas involve the Euclidean identity and a remainder bound together), 2 `ite` terms, one equation rewritten to a conjunction, and one indexed rule with a short head.
+
+### Thirteenth slice: the Euclidean inequalities, and why two lemmas remain
+
+The division facts now include the two inequalities that the Euclidean identity gives for each remainder: `t <= t mod-expression` and its converse. Each is the identity moved by Leibniz substitution into the closed comparison `t <= t`, and each is checked by the kernel before it is used. The inequalities are accepted; the count stays at 47 of 53.
+
+The two remaining lemmas need a certificate with a coefficient of 2 on some premises, among nine premises (with the division facts). The search covers 0 to 2 only for up to four premises, and 0 or 1 beyond that: a search over 0 to 2 for nine premises is 3^9 checks, which takes too long. The certificate is a linear program over non-negative rationals. The next step is an exact simplex over the coefficients, which finds a certificate of any size. It is not built yet.

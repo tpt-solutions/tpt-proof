@@ -626,7 +626,7 @@ impl Translator<'_> {
             let Formula::Atom(prop) = literal else {
                 continue;
             };
-            let facts = division_facts(prop);
+            let facts = division_facts(self.kernel, prop);
             let proof = facts.into_iter().find_map(|(fact, fact_proof)| {
                 if &fact == prop {
                     return Some(fact_proof);
@@ -757,7 +757,16 @@ impl Translator<'_> {
     ) -> Result<ProofTerm, ReflectError> {
         // The division laws add facts about the remainders the premises mention, so
         // a remainder bound such as `m <= 1` can be refuted by `m < 2`.
-        let facts: Vec<(Prop, ProofTerm)> = premises.iter().flat_map(division_facts).collect();
+        let mut facts: Vec<(Prop, ProofTerm)> = premises
+            .iter()
+            .flat_map(|p| division_facts(self.kernel, p))
+            .collect();
+        let mut seen: Vec<Prop> = Vec::new();
+        facts.retain(|(fact, _)| {
+            let new = !seen.contains(fact);
+            seen.push(fact.clone());
+            new
+        });
         let mut extended: Vec<Prop> = facts.iter().map(|(fact, _)| fact.clone()).collect();
         extended.extend(premises);
         let count = extended.len();
@@ -1712,7 +1721,7 @@ fn is_linear_refutation(left: &Formula, right: &Formula) -> bool {
 /// `case` mentions (see [`division_facts`]). Each fact is applied in turn, so the
 /// result is `case -> false`. The kernel checks it; `None` if it does not refute.
 fn contradiction_proof(kernel: &Kernel, case: &Prop) -> Option<ProofTerm> {
-    let facts = division_facts(case);
+    let facts = division_facts(kernel, case);
     let mut premises: Vec<Prop> = facts.iter().map(|(fact, _)| fact.clone()).collect();
     premises.push(case.clone());
     let count = premises.len();
@@ -1736,7 +1745,7 @@ fn contradiction_proof(kernel: &Kernel, case: &Prop) -> Option<ProofTerm> {
 /// numeral `k`: the remainder is not negative, and it is below `k`. Each fact is a
 /// proof of a comparison, obtained by applying the axiom to `t` and `k` and to the
 /// ground proof that `0 < k`.
-fn division_facts(prop: &Prop) -> Vec<(Prop, ProofTerm)> {
+fn division_facts(kernel: &Kernel, prop: &Prop) -> Vec<(Prop, ProofTerm)> {
     let mut remainders = Vec::new();
     collect_remainders_in_prop(prop, &mut remainders);
 
@@ -1768,8 +1777,76 @@ fn division_facts(prop: &Prop) -> Vec<(Prop, ProofTerm)> {
             Prop::Pred("<".to_string(), vec![modulo, k.clone()]),
             instance("mod_lt_divisor"),
         ));
+        facts.extend(euclid_inequalities(kernel, &term, &k));
     }
     facts
+        .into_iter()
+        .filter(|(fact, proof)| kernel.check_proof(proof, fact).is_ok())
+        .collect()
+}
+
+/// The two inequalities that the Euclidean identity `t = k * (t div k) + (t mod
+/// k)` gives: `t <= rhs` and `rhs <= t`. Each comes from the identity by Leibniz
+/// substitution into the comparison `t <= t`, which the Farkas rule closes.
+fn euclid_inequalities(kernel: &Kernel, term: &Term, k: &Term) -> Vec<(Prop, ProofTerm)> {
+    let quotient = Term::app("div", vec![term.clone(), k.clone()]);
+    let remainder = Term::app("mod", vec![term.clone(), k.clone()]);
+    let rhs = Term::app(
+        "+",
+        vec![Term::app("*", vec![k.clone(), quotient]), remainder],
+    );
+    let positive = Formula::Atom(Prop::Pred(
+        "<".to_string(),
+        vec![Term::constant("0"), k.clone()],
+    ));
+    let identity = ProofTerm::App(
+        Box::new(ProofTerm::IndApp(
+            Box::new(ProofTerm::IndApp(
+                Box::new(ProofTerm::Axiom("div_mod_euclid".to_string())),
+                term.clone(),
+            )),
+            k.clone(),
+        )),
+        Box::new(ProofTerm::Taut(positive)),
+    );
+    let mut out = Vec::new();
+    // `t <= rhs`: the motive `t <= v` at `v = t` is `t <= t`, and the identity
+    // moves it to `v = rhs`.
+    let forward = Prop::Pred("<=".to_string(), vec![term.clone(), Term::var(MOTIVE)]);
+    // `rhs <= t`: the motive `v <= t` at `v = t` is `t <= t`.
+    let backward = Prop::Pred("<=".to_string(), vec![Term::var(MOTIVE), term.clone()]);
+    for motive in [forward, backward] {
+        let at_term = motive.subst_individual(MOTIVE, term);
+        let Some(closed) = closed_comparison(kernel, &at_term) else {
+            continue;
+        };
+        let target = motive.subst_individual(MOTIVE, &rhs);
+        let proof = ProofTerm::Leibniz(
+            MOTIVE.to_string(),
+            motive,
+            Box::new(identity.clone()),
+            Box::new(closed),
+        );
+        if kernel.check_proof(&proof, &target).is_ok() {
+            out.push((target, proof));
+        }
+    }
+    out
+}
+
+/// A proof of a linear comparison that holds for every integer, found by refuting
+/// its negation with the Farkas rule. `None` if the kernel does not accept it.
+fn closed_comparison(kernel: &Kernel, prop: &Prop) -> Option<ProofTerm> {
+    let negated = Formula::Not(Box::new(Formula::Atom(prop.clone())));
+    let certificate = ProofTerm::Farkas(vec![negated.encode()], vec![1]);
+    let proof = ProofTerm::App(
+        Box::new(ProofTerm::Taut(Formula::Imp(
+            Box::new(Formula::Not(Box::new(negated))),
+            Box::new(Formula::Atom(prop.clone())),
+        ))),
+        Box::new(certificate),
+    );
+    kernel.check_proof(&proof, prop).ok().map(|_| proof)
 }
 
 /// The `(t, k)` of each `t mod k` in `prop` with a positive numeral `k`.
