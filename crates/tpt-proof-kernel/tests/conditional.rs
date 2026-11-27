@@ -113,8 +113,13 @@ fn equivalent_conditions_give_equal_conditionals() {
         c("4"),
         c("5"),
     );
-    let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
-    kernel.check_proof(&rule, &claim).expect("equivalent conditions");
+    let claim = Prop::Eq(
+        ite(p.clone(), c("4"), c("5")),
+        ite(p2.clone(), c("4"), c("5")),
+    );
+    kernel
+        .check_proof(&rule, &claim)
+        .expect("equivalent conditions");
 }
 
 #[test]
@@ -128,7 +133,10 @@ fn a_backward_proof_that_is_not_the_converse_is_refused() {
         c("4"),
         c("5"),
     );
-    let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
+    let claim = Prop::Eq(
+        ite(p.clone(), c("4"), c("5")),
+        ite(p2.clone(), c("4"), c("5")),
+    );
     assert!(matches!(
         kernel.check_proof(&rule, &claim),
         Err(KernelError::IteRejected(_))
@@ -147,7 +155,10 @@ fn a_false_equivalence_is_refused_by_its_proofs() {
         c("4"),
         c("5"),
     );
-    let claim = Prop::Eq(ite(p.clone(), c("4"), c("5")), ite(p2.clone(), c("4"), c("5")));
+    let claim = Prop::Eq(
+        ite(p.clone(), c("4"), c("5")),
+        ite(p2.clone(), c("4"), c("5")),
+    );
     assert!(kernel.check_proof(&rule, &claim).is_err());
 }
 
